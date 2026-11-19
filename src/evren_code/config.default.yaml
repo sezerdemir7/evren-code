@@ -1,0 +1,214 @@
+# Evren-Code Data-Driven Configuration File (v0.2.0)
+# All operational parameters, limits, and defaults are managed here without hardcoded magic numbers.
+
+api:
+  base_url: "https://evren-llmapi.ssyz.org.tr/v1"
+  key_prefix: "evren_llm_"
+  timeout_seconds: 120.0
+  verify_timeout_seconds: 30.0
+  max_retries: 3
+  terms_version: 1
+  storage_dir: "~/.evren-code"
+  key_filename: ".evren-key"
+  terms_filename: "evren-kullanim-sartlari.md"
+  models_cache_filename: "models_cache.json"
+  sessions_dirname: "sessions"
+
+models:
+  default: "deepseek-v4.1-flash"
+  roles:
+    orchestrator: "deepseek-v4.1-flash"
+    architect: "deepseek-v4.1-flash"
+    planner: "deepseek-v4.1-flash"
+    coder: "qwen3.8-flash-next"
+    developer: "qwen3.8-flash-next"
+    tester: "qwen3.8-flash-next"
+    reviewer: "deepseek-v4.1-flash"
+    researcher: "deepseek-v4.1-flash"
+    vision: "qwen3-vl-30b"
+    compactor: "gemma-4-31b"
+    auto: "auto"
+  display_names:
+    deepseek-v4.1-flash: "DeepSeek V4.1 Flash"
+    deepseek: "DeepSeek V4.1 Flash"
+    glm-5.3: "GLM 5.3"
+    qwen3.8-flash-next: "Qwen3.8 Flash Next"
+    gemma-4-31b: "Gemma 4 31B"
+    qwen3-vl-30b: "Qwen3 VL 30B"
+    auto: "EVREN Auto"
+  defaults:
+    context_length: 262144
+    max_output_tokens: 16384
+  catalog:
+    glm-5.3:
+      name: "GLM 5.3"
+      task: "chat"
+      context_length: 524288
+      max_output_tokens: 16384
+      tools: true
+      thinking: true
+      modalities: ["text"]
+    deepseek-v4.1-flash:
+      name: "DeepSeek V4.1 Flash"
+      task: "chat"
+      context_length: 1048576
+      max_output_tokens: 32768
+      tools: true
+      thinking: true
+      modalities: ["text", "image"]
+    qwen3.8-flash-next:
+      name: "Qwen3.8 Flash Next"
+      task: "chat"
+      context_length: 262144
+      max_output_tokens: 16384
+      tools: true
+      thinking: true
+      modalities: ["text"]
+    gemma-4-31b:
+      name: "Gemma 4 31B"
+      task: "chat"
+      context_length: 262144
+      max_output_tokens: 16384
+      tools: true
+      thinking: true
+      modalities: ["text", "image"]
+    qwen3-vl-30b:
+      name: "Qwen3 VL 30B"
+      task: "vision_chat"
+      context_length: 262144
+      max_output_tokens: 16384
+      tools: true
+      thinking: false
+      modalities: ["text", "image"]
+    auto:
+      name: "EVREN Auto"
+      task: "chat"
+      context_length: 262144
+      max_output_tokens: 16384
+      tools: true
+      thinking: true
+      modalities: ["text", "image"]
+
+agent:
+  max_iterations: 50
+  auto_continue: true
+  max_auto_continues: 2
+  subagent_max_iterations: 25
+  subagent_heartbeat_interval_seconds: 30.0
+  subagent_progress_cooldown_seconds: 60.0
+  subagent_max_progress_model_calls: 3
+  subagent_scratchpad_max_entries: 5
+  max_empty_thinking_retries: 2
+  temperature: 0.2
+  frequency_penalty: 0.1
+  presence_penalty: 0.1
+  repetition_guard_enabled: true
+  repetition_threshold_count: 3
+  compaction_threshold_ratio: 0.70
+  max_working_context_tokens: 96000
+  dod_verification_gate_enabled: true
+  max_dod_retries: 1
+  lean_tools_mode: true
+  dual_review_enabled: false
+  keep_recent_messages: 14
+  chars_per_token_estimate: 2.8
+  sliding_eviction_step_interval: 5
+  sliding_eviction_min_tokens: 48000
+  sliding_eviction_max_chars: 1800
+  project_rules_filenames:
+    - "EVREN.md"
+    - ".evrenrules"
+    - "AGENTS.md"
+  self_healing:
+    enabled: true
+    max_attempts: 3
+    auto_detect: true
+
+tools:
+  max_file_read_lines: 800
+  max_file_size_bytes: 1048576
+  max_recommended_file_lines: 300
+  auto_preload_max_files: 3
+  auto_preload_max_lines: 250
+  max_batch_read_files: 10
+  max_batch_lines_per_file: 400
+  default_tree_depth: 3
+  max_tree_depth: 6
+  max_tree_entries: 300
+  max_search_results: 60
+  max_directory_entries: 200
+  command_timeout_seconds: 120
+  build_command_timeout_seconds: 300
+  max_output_chars: 12000
+  max_undo_history: 30
+  url_fetch_timeout_seconds: 20.0
+  max_url_chars: 15000
+  require_approval_for:
+    - "write_file"
+    - "write_multiple_files"
+    - "edit_file"
+    - "multi_edit_file"
+    - "run_command"
+  repo_map:
+    max_tokens: 1500
+    max_files: 120
+  ignored_dirs:
+    - ".git"
+    - "__pycache__"
+    - "node_modules"
+    - ".next"
+    - ".nuxt"
+    - ".svelte-kit"
+    - ".venv"
+    - "venv"
+    - "dist"
+    - "build"
+    - "coverage"
+    - ".idea"
+    - ".vscode"
+    - ".pytest_cache"
+    - "Library"
+    - "Temp"
+    - "Obj"
+    - "obj"
+    - "bin"
+    - "Build"
+    - "Builds"
+    - "Logs"
+    - "MemoryCaptures"
+
+telemetry:
+  enabled: true
+  mode: "project" # "project" (.evren/logs/), "user" (~/.evren-code/telemetry/), or "off"
+  record_trajectory_jsonl: true
+  record_markdown_summary: true
+  auto_gitignore: true
+  max_log_chars_per_result: 3000
+
+multi_agent:
+  enabled: true
+  auto_decompose: true
+  max_parallel_agents: 4
+  task_timeout_seconds: 300.0
+  max_retry_attempts: 2
+  auto_review: true
+  verify_with_engine: true
+  heartbeat_interval_seconds: 10.0
+  recover_on_timeout: true
+  persistence_dir: ".evren/multi_agent"
+
+sprint:
+  enabled: false
+  max_iterations: 5
+  max_tasks_per_sprint: 30
+  max_parallel_agents: 3
+  max_retries_per_task: 2
+  stop_on_critical_failure: true
+  require_reviewer_approval: true
+  require_regression_check: true
+  require_acceptance_criteria: true
+  checkpoint_interval: 1
+  resume_interrupted_sprints: true
+  storage_dir: ".evren/sprints"
+  sprint_timeout_seconds: 3600.0
+
