@@ -139,7 +139,29 @@ EVREN platformundaki API anahtarınızın kullanım süresi dolduğunda veya ana
 
 ---
 
-### 5. Sık Karşılaşılan Kurulum Sorunları ve Çözümleri
+### 5. Yeni Güncellemeleri Alma (Evren-Code'u Güncelleme)
+
+GitHub deposuna yeni özellikler, model güncellemeleri veya hata düzeltmeleri eklendiğinde aracınızı en güncel sürüme yükseltmek için iki yöntem kullanabilirsiniz:
+
+#### Yöntem 1: Tek Komutla Otomatik Güncelleme (Önerilen)
+Hangi klasörde olursanız olun terminalde şu komutu çalıştırın:
+```bash
+evren --update
+```
+Bu komut arka planda `evren-code` kaynak dizinine giderek GitHub'dan en son değişiklikleri (`git pull`) otomatik çeker ve yeni bağımlılıklar varsa (`pip install -e .`) günceller.
+
+#### Yöntem 2: Git ile Manuel Güncelleme
+Projeyi klonladığınız `evren-code` klasörüne giderek:
+```bash
+cd evren-code
+git pull origin main
+py -3 -m pip install -e .
+```
+*(Not: İlk kurulumu `-e` parametresiyle yaptığınız için `git pull` sonrasında yapılan kod değişiklikleri anında aktif olur.)*
+
+---
+
+### 6. Sık Karşılaşılan Kurulum Sorunları ve Çözümleri
 
 * **Sorun 1: `'evren' terimi bir cmdlet, işlev veya program olarak tanınmıyor` (`command not found: evren`)**
   * **Nedeni:** Python'un `Scripts` klasörü henüz terminalinizin `PATH` ortam değişkeninde aktif olmamıştır.
