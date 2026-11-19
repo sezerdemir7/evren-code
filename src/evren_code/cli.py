@@ -77,18 +77,11 @@ class SlashCommandCompleter(Completer):
                 for m in self.models:
                     if m.lower().startswith(current_word.lower()):
                         yield Completion(m, start_position=-len(current_word))
-            elif cmd == "/load" and self.session_mgr:
+            elif cmd == "/undo":
                 current_word = document.get_word_before_cursor()
-                sessions = [s["name"] for s in self.session_mgr.list_sessions()]
-                for sname in sessions:
-                    if sname.lower().startswith(current_word.lower()):
-                        yield Completion(sname, start_position=-len(current_word))
-            elif cmd == "/multi":
-                subcmds = ["status", "plan", "agents", "tasks", "graph", "conflicts", "history", "report", "cancel", "resume"]
-                current_word = document.get_word_before_cursor()
-                for sc in subcmds:
-                    if sc.lower().startswith(current_word.lower()):
-                        yield Completion(sc, start_position=-len(current_word))
+                for sub in ("turn", "all"):
+                    if sub.startswith(current_word.lower()):
+                        yield Completion(sub, start_position=-len(current_word))
 
 
 def run_onboarding_flow(
@@ -155,7 +148,7 @@ def handle_slash_command(
         help_text = (
             "[bold cyan]Evren-Code Temel Komutları:[/bold cyan]\n"
             "  [bold green]/model [id|rol][/bold green] : Aktif modeli görüntüler veya değiştirir (örn: `/model coder` veya `/model deepseek-v4.1-flash`)\n"
-            "  [bold green]/undo[/bold green]           : Ajanın yaptığı son dosya değişikliğini anında geri alır (Snapshot)\n"
+            "  [bold green]/undo [turn][/bold green]    : Son dosya değişikliğini veya tüm turu (`/undo turn`, Shadow Git) anında geri alır\n"
             "  [bold green]/status[/bold green]         : Aktif model, token kullanımı ve çalışma alanı durumunu gösterir\n"
             "  [bold green]/compact[/bold green]        : Konuşma geçmişini özetleyerek bağlamda yer açar\n"
             "  [bold green]/clear[/bold green]          : Konuşma hafızasını sıfırlar ve yeni bir göreve başlar\n"
@@ -168,14 +161,6 @@ def handle_slash_command(
         ui.console.print(help_text)
         return True
 
-    if cmd == "/models":
-        ui.print_models_table(
-            catalog=orchestrator.config.models.catalog,
-            roles=orchestrator.config.models.roles,
-            active_id=orchestrator.llm_client.active_model.id,
-        )
-        return True
-
     if cmd == "/model":
         if not arg:
             ui.console.print(
@@ -186,452 +171,47 @@ def handle_slash_command(
             orchestrator.llm_client.set_model(arg)
         return True
 
-    if cmd == "/architect":
-        if not arg:
-            ui.console.print("[yellow]Lütfen mimari görev açıklaması girin: `/architect <görev>`[/yellow]")
+    if cmd == "/undo":
+        shadow_git = getattr(orchestrator, "shadow_git", None)
+        if arg.lower() in ("turn", "all", "tur", "tümü"):
+            msg = orchestrator.undo_manager.revert_turn(shadow_git=shadow_git)
+        elif orchestrator.undo_manager.can_undo:
+            msg = orchestrator.undo_manager.undo_last()
+        elif shadow_git and getattr(shadow_git, "last_checkpoint_commit", None):
+            msg = orchestrator.undo_manager.revert_turn(shadow_git=shadow_git)
         else:
-            try:
-                orchestrator.run_architect_workflow(arg)
-            except EvrenAPIError as exc:
-                ui.console.print(f"[bold red]API Hatası:[/bold red] {exc}")
+            msg = orchestrator.undo_manager.undo_last()
+        ui.console.print(f"[bold cyan]{msg}[/bold cyan]")
         return True
 
-    if cmd in ("/overview", "/project"):
-        ui.console.print("[dim]Proje zekası (Repository Intelligence) taranıyor...[/dim]")
-        tool_to_call = "inspect_project" if arg else "get_project_overview"
-        args = {"query": arg} if arg else {}
-        out = orchestrator.tool_executor.execute(
-            tool_name=tool_to_call,
-            arguments=args,
-            caller_role="main",
-            caller_agent="cli_user",
-            is_trust_mode=orchestrator.trust_mode,
-        )
-        ui.console.print(out)
+    if cmd == "/compact":
+        count = orchestrator.compact_context()
+        if count == 0:
+            ui.console.print("[dim]Sıkıştırılacak yeterli uzunlukta geçmiş bulunmuyor.[/dim]")
         return True
 
-    if cmd == "/repomap":
-        target_dir = arg or "."
-        ui.console.print("[dim]Semantik kod haritası (AST + PageRank Repo-Map) taranıyor...[/dim]")
-        map_out = orchestrator.tool_executor.execute(
-            tool_name="get_repo_map",
-            arguments={"directory": target_dir},
-            caller_role="main",
-            caller_agent="cli_user",
-            is_trust_mode=orchestrator.trust_mode,
-        )
-        ui.console.print(map_out)
-        return True
-
-    if cmd == "/heal":
-        ui.console.print("[dim]Proje doğrulama ve otonom test kontrolü başlatılıyor...[/dim]")
-        task = None
-        if arg:
-            from evren_code.core.self_healing import VerificationTask
-            task = VerificationTask(command=arg, cwd=orchestrator.config.workspace_root, description=arg)
-        def _exec(c: str, w: Optional[str] = None) -> str:
-            return orchestrator.tool_executor.execute(
-                tool_name="run_command",
-                arguments={"command": c, "cwd": w or "."},
-                caller_role="tester",
-                caller_agent="cli_heal",
-                is_trust_mode=orchestrator.trust_mode,
-            )
-
-        ok, cmd_run, out = orchestrator.self_healing_manager.execute_verification(_exec, task)
-        if ok:
-            ui.console.print(f"[bold green]✔ Doğrulama Başarılı:[/bold green] `{cmd_run}` sorunsuz geçti.")
-        else:
-            ui.console.print(
-                f"[bold red]✖ Doğrulama Başarısız:[/bold red] `{cmd_run}`\n"
-                f"[dim]{(out or '')[:500]}[/dim]\n"
-                "[bold cyan]Ajan otonom onarım turu başlatıyor...[/bold cyan]"
-            )
-            orchestrator.run_turn(
-                f"[Self-Healing]: '{cmd_run}' çalıştırıldı ve şu hatayı verdi:\n"
-                f"```\n{(out or '')[:2500]}\n```\n"
-                "Lütfen ilgili dosyaları okuyup hatayı düzeltecek cerrahi değişikliği uygulayın."
-            )
-        return True
-
-    if cmd == "/verify":
-        sub_cmd = arg.strip().split(maxsplit=1)[0].lower() if arg.strip() else ""
-        sub_arg = arg.strip().split(maxsplit=1)[1].strip() if len(arg.strip().split(maxsplit=1)) > 1 else ""
-
-        if sub_cmd == "status":
-            rep = orchestrator.verification_engine.last_report or orchestrator.verification_engine.history_store.get_latest_report()
-            if not rep:
-                ui.console.print("[yellow]Henüz yürütülmüş bir doğrulama bulunamadı.[/yellow]")
-            else:
-                ui.console.print(f"[bold cyan]Son Doğrulama Durumu:[/bold cyan] {rep.final_status.value} ({rep.timestamp[:19]})")
-                ui.console.print(orchestrator.verification_engine.format_report_markdown(rep))
-            return True
-
-        if sub_cmd == "history":
-            hist_md = orchestrator.tool_executor.execute(
-                tool_name="get_verification_history",
-                arguments={"limit": 10},
-                caller_role="main",
-                caller_agent="cli_user",
-                is_trust_mode=orchestrator.trust_mode,
-            )
-            ui.console.print(hist_md)
-            return True
-
-        if sub_cmd == "report":
-            rep_md = orchestrator.tool_executor.execute(
-                tool_name="get_verification_report",
-                arguments={"report_name": sub_arg} if sub_arg else {},
-                caller_role="main",
-                caller_agent="cli_user",
-                is_trust_mode=orchestrator.trust_mode,
-            )
-            ui.console.print(rep_md)
-            return True
-
-        ui.console.print("[dim]Faz 2.3 Doğrulama ve Etki Analizi Döngüsü çalıştırılıyor...[/dim]")
-        target_files = []
-        if sub_cmd == "retry":
-            last_rep = orchestrator.verification_engine.last_report or orchestrator.verification_engine.history_store.get_latest_report()
-            if last_rep and last_rep.changed_files:
-                target_files = last_rep.changed_files
-        elif arg:
-            target_files = [f.strip() for f in arg.split(",") if f.strip()]
-
-        report_md = orchestrator.tool_executor.execute(
-            tool_name="run_verification",
-            arguments={
-                "changed_files": ",".join(target_files),
-                "task_description": f"CLI /verify yürütmesi ({', '.join(target_files) if target_files else 'genel'})",
-            },
-            caller_role="main",
-            caller_agent="cli_user",
-            is_trust_mode=orchestrator.trust_mode,
-        )
-        ui.console.print(report_md)
-        return True
-
-    if cmd == "/multi":
-        coordinator = getattr(orchestrator, "multi_agent_coordinator", None)
-        if not coordinator:
-            ui.console.print("[red]Çoklu ajan koordinatörü aktif değil.[/red]")
-            return True
-
-        sub_parts = arg.split(maxsplit=1)
-        sub_cmd = sub_parts[0].lower() if sub_parts else "status"
-        sub_arg = sub_parts[1].strip() if len(sub_parts) > 1 else ""
-
-        if sub_cmd == "status":
-            graph = coordinator.current_graph
-            if not graph:
-                ui.console.print("[dim]Şu anda aktif bir çoklu ajan yürütmesi yok. Yeni başlatmak için: `/multi plan <hedef>`[/dim]")
-            else:
-                ui.console.print(graph.to_ascii_tree())
-            return True
-
-        if sub_cmd == "graph":
-            graph = coordinator.current_graph
-            if not graph:
-                ui.console.print("[dim]Aktif görev çizgesi bulunamadı.[/dim]")
-            else:
-                ui.console.print(f"[bold cyan]Görev Çizgesi (Topolojik Sıralama):[/bold cyan]\n{graph.to_ascii_tree()}")
-            return True
-
-        if sub_cmd == "tasks":
-            graph = coordinator.current_graph
-            if not graph:
-                ui.console.print("[dim]Aktif görev listesi yok.[/dim]")
-            else:
-                from rich.table import Table
-                table = Table(title="Çoklu Ajan Görev Listesi")
-                table.add_column("ID", style="bold cyan")
-                table.add_column("Rol", style="magenta")
-                table.add_column("Durum", style="yellow")
-                table.add_column("Başlık")
-                table.add_column("Atanan Dosyalar", style="dim")
-                for t in graph.tasks.values():
-                    table.add_row(
-                        t.task_id,
-                        t.role.value,
-                        t.status.value,
-                        t.title,
-                        ", ".join(t.assigned_files) if t.assigned_files else "-"
-                    )
-                ui.console.print(table)
-            return True
-
-        if sub_cmd == "agents":
-            agents = coordinator.agent_registry.list_agents()
-            if not agents:
-                ui.console.print("[dim]Henüz havuza kayıtlı uzman ajan yok.[/dim]")
-            else:
-                from rich.table import Table
-                table = Table(title="Aktif Uzman Ajanlar")
-                table.add_column("Ajan ID", style="bold cyan")
-                table.add_column("Rol", style="magenta")
-                table.add_column("Durum", style="green")
-                table.add_column("Model ID", style="dim")
-                for a in agents:
-                    table.add_row(a["agent_id"], a["role"], a["status"], a["model"])
-                ui.console.print(table)
-            return True
-
-        if sub_cmd == "conflicts":
-            conflicts = coordinator.last_conflicts
-            if not conflicts:
-                ui.console.print("[bold green]✔ Görevler arasında herhangi bir dosya çakışması tespit edilmedi.[/bold green]")
-            else:
-                for c in conflicts:
-                    status = "[green]ÇÖZÜLDÜ[/green]" if c.resolved else "[red]ÇÖZÜLEMEDİ[/red]"
-                    ui.console.print(f"- {c.conflict_id} ({c.task_a_id} <-> {c.task_b_id}) [{status}]: {c.details}")
-            return True
-
-        if sub_cmd == "plan":
-            if not sub_arg:
-                ui.console.print("[yellow]Kullanım: `/multi plan <hedef>` (Örn: `/multi plan Yeni auth modülü ekle`)[/yellow]")
-                return True
-            ui.console.print(f"[bold cyan]Çoklu Ajan Planı Oluşturuluyor ve Yürütülüyor:[/bold cyan] {sub_arg}")
-            report = coordinator.run_plan(goal=sub_arg)
-            ui.console.print(report.summary)
-            return True
-
-        if sub_cmd == "cancel":
-            ok = coordinator.cancel_active_run()
-            if ok:
-                ui.console.print("[yellow]Aktif çoklu ajan çalışması iptal edildi.[/yellow]")
-            else:
-                ui.console.print("[dim]İptal edilecek aktif çalışma bulunamadı.[/dim]")
-            return True
-
-        if sub_cmd == "history":
-            runs = coordinator.persistence.list_runs()
-            if not runs:
-                ui.console.print("[dim]Kayıtlı çoklu ajan çalışması bulunamadı.[/dim]")
-            else:
-                from rich.table import Table
-                table = Table(title="Çoklu Ajan Çalışma Geçmişi (.evren/multi_agent/runs/)")
-                table.add_column("Run ID", style="bold cyan")
-                table.add_column("Görev Sayısı", justify="right")
-                table.add_column("Dizin", style="dim")
-                for r in runs:
-                    table.add_row(r.get("run_id", ""), str(r.get("total_tasks", 0)), r.get("path", ""))
-                ui.console.print(table)
-            return True
-
-        if sub_cmd == "report":
-            target_run = sub_arg or coordinator.active_run_id
-            if not target_run:
-                ui.console.print("[yellow]Görüntülenecek Run ID belirtin veya önce bir çalışma yürütün.[/yellow]")
-                return True
-            try:
-                _, rep, _ = coordinator.persistence.load_checkpoint(target_run)
-                if rep:
-                    ui.console.print(rep.summary)
-                else:
-                    ui.console.print(f"[yellow]'{target_run}' için rapor bulunamadı.[/yellow]")
-            except Exception as exc:
-                ui.console.print(f"[red]Rapor yükleme hatası: {exc}[/red]")
-            return True
-
-        if sub_cmd == "resume":
-            target_run = sub_arg or coordinator.active_run_id
-            if not target_run:
-                ui.console.print("[yellow]Devam edilecek Run ID belirtin: `/multi resume <run_id>` (Liste için: `/multi history`)[/yellow]")
-                return True
-            ui.console.print(f"[bold green]'{target_run}' çalışmasına kaldığı yerden devam ediliyor...[/bold green]")
-            try:
-                report = coordinator.resume_run(target_run)
-                ui.console.print(report.summary)
-            except Exception as exc:
-                ui.console.print(f"[red]Devam etme hatası: {exc}[/red]")
-            return True
-
+    if cmd == "/status":
+        spec = orchestrator.llm_client.active_model
+        tokens = orchestrator.context.estimate_tokens()
+        msgs = orchestrator.context.history_length
+        undos = orchestrator.undo_manager.history_count
+        shadow_git = getattr(orchestrator, "shadow_git", None)
+        has_shadow_cp = bool(shadow_git and getattr(shadow_git, "last_checkpoint_commit", None))
+        shadow_tag = " + ShadowGit Checkpoint" if has_shadow_cp else ""
         ui.console.print(
-            "[bold cyan]Çoklu Ajan Komutları:[/bold cyan]\n"
-            "  • `/multi plan <hedef>`: Hedefi DAG çizgesine ayrıştırır ve paralel uzman ajanlarla yürütür.\n"
-            "  • `/multi status`: Aktif yürütme durumunu ve ağacı gösterir.\n"
-            "  • `/multi graph`: Görev bağımlılık çizgesini gösterir.\n"
-            "  • `/multi tasks`: Görevlerin ayrıntılı listesini ve kapsamlarını listeler.\n"
-            "  • `/multi agents`: Havuzdaki uzman ajanları ve durumlarını gösterir.\n"
-            "  • `/multi conflicts`: Dosya kapsamı çakışmalarını ve çözümlerini listeler.\n"
-            "  • `/multi history`: Kayıtlı çalışma oturumlarını gösterir.\n"
-            "  • `/multi report [run_id]`: Çalışmanın nihai provens raporunu görüntüler.\n"
-            "  • `/multi cancel`: Devam eden çalışmayı iptal eder.\n"
-            "  • `/multi resume [run_id]`: Yarıda kalan çalışmaya devam eder."
+            f"[bold]Model:[/bold] {spec.name} ({spec.id}) | "
+            f"[bold]Mesaj:[/bold] {msgs} | "
+            f"[bold]Tahmini Token:[/bold] ~{tokens} / {spec.context_length} | "
+            f"[bold]Geri Alınabilir İşlem (/undo):[/bold] {undos}{shadow_tag}"
         )
         return True
 
-    if cmd == "/sprint":
-        sprint_mgr = getattr(orchestrator, "sprint_manager", None)
-        if not sprint_mgr:
-            ui.console.print("[red]Sprint yöneticisi aktif değil.[/red]")
-            return True
-
-        sub_parts = arg.split(maxsplit=1)
-        sub_cmd = sub_parts[0].lower() if sub_parts else "status"
-        sub_arg = sub_parts[1].strip() if len(sub_parts) > 1 else ""
-
-        if sub_cmd in ("status", "progress"):
-            target_sid = sub_arg or (sprint_mgr.active_sprint.id if sprint_mgr.active_sprint else None)
-            if not target_sid:
-                ui.console.print("[dim]Şu anda aktif bir sprint yok. Yeni planlamak için: `/sprint plan <hedef>`[/dim]")
-            else:
-                ui.console.print(sprint_mgr.get_status_dashboard(target_sid))
-            return True
-
-        if sub_cmd in ("plan", "create"):
-            if not sub_arg:
-                ui.console.print("[yellow]Kullanım: `/sprint plan <mühendislik hedefi>`[/yellow]")
-                return True
-            ui.console.print(f"[bold cyan]Sprint Planlanıyor:[/bold cyan] {sub_arg}")
-            sp = sprint_mgr.create_and_plan(objective=sub_arg)
-            ui.console.print(sprint_mgr.get_status_dashboard(sp.id))
-            ui.console.print(f"\n[green]Sprint planlandı! Başlatmak için: `/sprint approve {sp.id}` ardından `/sprint start`[/green]")
-            return True
-
-        if sub_cmd == "approve":
-            target_sid = sub_arg or (sprint_mgr.active_sprint.id if sprint_mgr.active_sprint else None)
-            if not target_sid:
-                ui.console.print("[yellow]Onaylanacak sprint ID belirtin: `/sprint approve <sprint_id>`[/yellow]")
-                return True
-            ok = sprint_mgr.approve_sprint(target_sid)
-            if ok:
-                ui.console.print(f"[bold green]✔ Sprint '{target_sid}' kullanıcı tarafından onaylandı. Başlatmak için: `/sprint start`[/bold green]")
-            return True
-
-        if sub_cmd == "start":
-            target_sid = sub_arg or (sprint_mgr.active_sprint.id if sprint_mgr.active_sprint else None)
-            ui.console.print(f"[bold cyan]Otonom Sprint Yürütmesi Başlatılıyor...[/bold cyan]")
-            try:
-                res_sp = sprint_mgr.start_sprint(target_sid)
-                ui.console.print(sprint_mgr.get_status_dashboard(res_sp.id))
-                ui.console.print(f"\n[bold green]Sprint tamamlandı! Durum: {res_sp.status.value}[/bold green]")
-            except Exception as exc:
-                ui.console.print(f"[bold red]Sprint Yürütme Hatası:[/bold red] {exc}")
-            return True
-
-        if sub_cmd == "epics":
-            target_sid = sub_arg or (sprint_mgr.active_sprint.id if sprint_mgr.active_sprint else None)
-            sp = sprint_mgr.get_sprint(target_sid) if target_sid else None
-            if not sp:
-                ui.console.print("[dim]Aktif sprint bulunamadı.[/dim]")
-            else:
-                from rich.table import Table
-                table = Table(title=f"Sprint Epikleri ({sp.id})")
-                table.add_column("Epik ID", style="bold cyan")
-                table.add_column("Başlık")
-                table.add_column("Durum", style="magenta")
-                table.add_column("Görevler", justify="right")
-                for e in sp.epics.values():
-                    table.add_row(e.id, e.title, e.status.value, str(len(e.task_ids)))
-                ui.console.print(table)
-            return True
-
-        if sub_cmd == "tasks":
-            target_sid = sub_arg or (sprint_mgr.active_sprint.id if sprint_mgr.active_sprint else None)
-            sp = sprint_mgr.get_sprint(target_sid) if target_sid else None
-            if not sp:
-                ui.console.print("[dim]Aktif sprint bulunamadı.[/dim]")
-            else:
-                from rich.table import Table
-                table = Table(title=f"Sprint Görevleri ({sp.id})")
-                table.add_column("Görev ID", style="bold cyan")
-                table.add_column("Rol", style="magenta")
-                table.add_column("Durum", style="yellow")
-                table.add_column("Başlık")
-                table.add_column("Atanan Dosyalar", style="dim")
-                for t in sp.tasks.values():
-                    table.add_row(t.task_id, t.role.value, t.status.value, t.title, ", ".join(t.assigned_files) if t.assigned_files else "-")
-                ui.console.print(table)
-            return True
-
-        if sub_cmd == "acceptance":
-            target_sid = sub_arg or (sprint_mgr.active_sprint.id if sprint_mgr.active_sprint else None)
-            sp = sprint_mgr.get_sprint(target_sid) if target_sid else None
-            if not sp:
-                ui.console.print("[dim]Aktif sprint bulunamadı.[/dim]")
-            else:
-                from rich.table import Table
-                table = Table(title=f"Kabul Kriterleri ve Kanıtlar ({sp.id})")
-                table.add_column("Kriter ID", style="bold cyan")
-                table.add_column("Yöntem", style="dim")
-                table.add_column("Durum", style="green")
-                table.add_column("Açıklama")
-                table.add_column("Doğrulama Sonucu", style="dim")
-                for c in sp.acceptance_criteria.values():
-                    table.add_row(c.id, c.method.value, c.status.value, c.description, c.verification_result[:60] if c.verification_result else "-")
-                ui.console.print(table)
-            return True
-
-        if sub_cmd == "report":
-            target_sid = sub_arg or (sprint_mgr.active_sprint.id if sprint_mgr.active_sprint else None)
-            if not target_sid:
-                ui.console.print("[yellow]Görüntülenecek Sprint ID belirtin.[/yellow]")
-            else:
-                md_rep = sprint_mgr.get_markdown_report(target_sid)
-                ui.console.print(md_rep)
-            return True
-
-        if sub_cmd in ("history", "list"):
-            sprints = sprint_mgr.list_sprints()
-            if not sprints:
-                ui.console.print("[dim]Henüz kayıtlı sprint bulunmuyor.[/dim]")
-            else:
-                from rich.table import Table
-                table = Table(title="Kayıtlı Sprintler (.evren/sprints/)")
-                table.add_column("Sprint ID", style="bold cyan")
-                table.add_column("Durum", style="magenta")
-                table.add_column("İterasyon", justify="right")
-                table.add_column("Görevler", justify="right")
-                table.add_column("Başlık")
-                for s in sprints:
-                    table.add_row(s["sprint_id"], s["status"], str(s["iteration"]), str(s["tasks_count"]), s["title"])
-                ui.console.print(table)
-            return True
-
-        if sub_cmd == "pause":
-            target_sid = sub_arg or (sprint_mgr.active_sprint.id if sprint_mgr.active_sprint else None)
-            ok = sprint_mgr.pause_sprint(target_sid)
-            if ok:
-                ui.console.print(f"[yellow]Sprint '{target_sid}' duraklatıldı.[/yellow]")
-            else:
-                ui.console.print("[dim]Duraklatılacak çalışan sprint bulunamadı.[/dim]")
-            return True
-
-        if sub_cmd == "resume":
-            target_sid = sub_arg or (sprint_mgr.active_sprint.id if sprint_mgr.active_sprint else None)
-            ui.console.print(f"[bold green]Sprint '{target_sid}' devam ettiriliyor...[/bold green]")
-            try:
-                res_sp = sprint_mgr.resume_sprint(target_sid)
-                ui.console.print(sprint_mgr.get_status_dashboard(res_sp.id))
-            except Exception as exc:
-                ui.console.print(f"[bold red]Devam ettirme hatası:[/bold red] {exc}")
-            return True
-
-        if sub_cmd == "cancel":
-            target_sid = sub_arg or (sprint_mgr.active_sprint.id if sprint_mgr.active_sprint else None)
-            ok = sprint_mgr.cancel_sprint(target_sid)
-            if ok:
-                ui.console.print(f"[yellow]Sprint '{target_sid}' iptal edildi.[/yellow]")
-            else:
-                ui.console.print("[dim]İptal edilecek sprint bulunamadı.[/dim]")
-            return True
-
-        ui.console.print(
-            "[bold cyan]Otonom Sprint Komutları (Phase 2.5):[/bold cyan]\n"
-            "  • `/sprint plan <hedef>`: Yeni sprint planlar (epik, görev, kabul kriteri).\n"
-            "  • `/sprint approve [sprint_id]`: Planlanan sprinti onaylar.\n"
-            "  • `/sprint start [sprint_id]`: Onaylanan sprinti otonom yürütmeye başlatır.\n"
-            "  • `/sprint status [sprint_id]`: Sprint ilerleme panosunu (dashboard) görüntüler.\n"
-            "  • `/sprint epics [sprint_id]`: Epik listesini gösterir.\n"
-            "  • `/sprint tasks [sprint_id]`: Görev listesini ve rollerini gösterir.\n"
-            "  • `/sprint acceptance [sprint_id]`: Kanıta dayalı kabul kriterlerini listeler.\n"
-            "  • `/sprint report [sprint_id]`: Kapsamlı Markdown teslimat raporunu görüntüler.\n"
-            "  • `/sprint history`: Kayıtlı tüm sprintleri listeler.\n"
-            "  • `/sprint pause`: Çalışan sprinti duraklatır.\n"
-            "  • `/sprint resume [sprint_id]`: Duraklatılmış sprinti devam ettirir.\n"
-            "  • `/sprint cancel`: Sprinti iptal eder."
-        )
+    if cmd == "/clear":
+        orchestrator.context.clear()
+        orchestrator.plan_manager.clear()
+        orchestrator.logger.clear_logs()
+        session_mgr.clear_workspace_session()
+        ui.console.print("[green]✔ Konuşma geçmişi, aktif plan, log kayıtları ve oturum temizlendi.[/green]")
         return True
 
     if cmd == "/run":
@@ -646,180 +226,6 @@ def handle_slash_command(
             is_trust_mode=orchestrator.trust_mode,
         )
         ui.console.print(out)
-        return True
-
-    if cmd == "/plan":
-        if not arg:
-            table = orchestrator.plan_manager.render_table()
-            ui.console.print(table)
-        else:
-            ui.console.print(f"[bold cyan]Plan Oluşturuluyor:[/bold cyan] {arg}")
-            orchestrator.run_turn(
-                f"Lütfen şu görev için önce 'create_task_plan' aracını çağırarak somut 3-6 adımlık bir plan oluştur: {arg}"
-            )
-        return True
-
-    if cmd in ("/subagent", "/subagents", "/delegate"):
-        parts = arg.split(maxsplit=1)
-        if not parts:
-            ui.console.print(
-                "[bold cyan]Kullanım:[/bold cyan] `/subagent <researcher|tester|reviewer> <görev açıklaması>`\n"
-                "  • [bold]researcher:[/bold] Kod tabanını ve dokümanları salt-okunur derinlemesine araştırır.\n"
-                "  • [bold]tester:[/bold] Testleri ve derlemeyi koşturur, hata triyajı yapar.\n"
-                "  • [bold]reviewer:[/bold] Git farklarını ve kod kalitesini denetler."
-            )
-            return True
-        role = parts[0].lower()
-        sub_task = parts[1] if len(parts) > 1 else "Genel inceleme ve durum raporu çıkar."
-        res = orchestrator.subagent_manager.delegate(role, sub_task)
-        ui.console.print(res)
-        return True
-
-    if cmd in ("/search", "/semantic"):
-        if not arg:
-            ui.console.print("[yellow]Kullanım: `/search <doğal dil veya teknik kavram>` (Örn: `/search auth password hash`)[/yellow]")
-            return True
-        out = orchestrator.tool_executor.execute(
-            tool_name="semantic_search_code",
-            arguments={"query": arg},
-            caller_role="main",
-            caller_agent="cli_user",
-            is_trust_mode=orchestrator.trust_mode,
-        )
-        ui.console.print(out)
-        return True
-
-    if cmd == "/tree":
-        target_dir = arg or "."
-        tree_out = orchestrator.tool_executor.execute(
-            tool_name="get_project_tree",
-            arguments={"path": target_dir},
-            caller_role="main",
-            caller_agent="cli_user",
-            is_trust_mode=orchestrator.trust_mode,
-        )
-        ui.console.print(tree_out)
-        return True
-
-    if cmd == "/undo":
-        msg = orchestrator.undo_manager.undo_last()
-        ui.console.print(f"[bold cyan]{msg}[/bold cyan]")
-        return True
-
-    if cmd == "/save":
-        session_name = arg or orchestrator.config.workspace_root.name
-        saved_file = session_mgr.save_session(
-            name=session_name,
-            context=orchestrator.context,
-            active_model_id=orchestrator.llm_client.active_model.id,
-            plan_manager=orchestrator.plan_manager,
-        )
-        ui.console.print(
-            f"[green]✔ Oturum kaydedildi:[/green] [bold]{saved_file.stem}[/bold] ([dim]{saved_file}[/dim])"
-        )
-        return True
-
-    if cmd == "/load":
-        if not arg:
-            ui.console.print("[yellow]Yüklenecek oturum adını belirtin: `/load <oturum_adi>` (Liste için `/sessions`)[/yellow]")
-            return True
-        try:
-            payload = session_mgr.load_session(arg, orchestrator.context)
-            session_mgr.restore_session_to_orchestrator(orchestrator, payload)
-            ui.console.print(
-                f"[green]✔ '{arg}' oturumu geri yüklendi ({len(payload.get('messages', []))} mesaj).[/green]"
-            )
-            if orchestrator.plan_manager.current_plan:
-                ui.console.print(orchestrator.plan_manager.render_table())
-        except FileNotFoundError as exc:
-            ui.console.print(f"[red]{exc}[/red]")
-        return True
-
-    if cmd in ("/resume", "/continue"):
-        last_sess = session_mgr.get_last_workspace_session()
-        if not last_sess:
-            ui.console.print("[dim]Bu çalışma alanında devam edilecek kayıtlı oturum bulunamadı.[/dim]")
-        else:
-            session_mgr.restore_session_to_orchestrator(orchestrator, last_sess)
-            rel_t = last_sess.get("relative_time", "önceki")
-            ui.console.print(
-                f"[green]✔ Son oturum başarıyla yüklendi ({len(last_sess.get('messages', []))} mesaj, {rel_t}).[/green]"
-            )
-            if orchestrator.plan_manager.current_plan:
-                ui.console.print(orchestrator.plan_manager.render_table())
-        return True
-
-    if cmd == "/sessions":
-        sessions = session_mgr.list_sessions()
-        if not sessions:
-            ui.console.print("[dim]Henüz kaydedilmiş bir oturum bulunmuyor (`/save <isim>` ile kaydedebilirsiniz).[/dim]")
-        else:
-            for s in sessions:
-                ui.console.print(
-                    f"  • [bold cyan]{s['name']}[/bold cyan] | Model: {s['model']} | "
-                    f"Mesaj: {s['messages']} | Tarih: {s['saved_at']} | Dizin: [dim]{s['workspace']}[/dim]"
-                )
-        return True
-
-    if cmd == "/compact":
-        count = orchestrator.compact_context()
-        if count == 0:
-            ui.console.print("[dim]Sıkıştırılacak yeterli uzunlukta geçmiş bulunmuyor.[/dim]")
-        return True
-
-    if cmd == "/trust":
-        orchestrator.trust_mode = not orchestrator.trust_mode
-        ui._trust_all_active = orchestrator.trust_mode
-        state = "AKTİF (Onay sorulmayacak)" if orchestrator.trust_mode else "KAPALI (Değişikliklerde onay sorulacak)"
-        ui.console.print(f"[bold cyan]Güven Modu:[/bold cyan] {state}")
-        return True
-
-    if cmd == "/status":
-        spec = orchestrator.llm_client.active_model
-        tokens = orchestrator.context.estimate_tokens()
-        msgs = orchestrator.context.history_length
-        undos = orchestrator.undo_manager.history_count
-        ui.console.print(
-            f"[bold]Model:[/bold] {spec.name} ({spec.id}) | "
-            f"[bold]Mesaj:[/bold] {msgs} | "
-            f"[bold]Tahmini Token:[/bold] ~{tokens} / {spec.context_length} | "
-            f"[bold]Geri Alınabilir İşlem (/undo):[/bold] {undos}"
-        )
-        return True
-
-    if cmd in ("/logs", "/log"):
-        logger = orchestrator.logger
-        if not logger.enabled or not logger.log_directory:
-            ui.console.print("[dim]Loglama devre dışı.[/dim]")
-        elif arg == "clear":
-            logger.clear_logs()
-            ui.console.print("[bold green]✔ Log kayıtları (.evren/logs/) temizlendi.[/bold green]")
-        else:
-            ui.console.print(
-                f"[bold cyan]📁 Ajan Geliştirme Günlükleri:[/bold cyan]\n"
-                f"  • JSONL Yörünge: [green]{logger.jsonl_path}[/green]\n"
-                f"  • Markdown Günlük: [green]{logger.markdown_path}[/green]\n"
-                f"[dim]Temizlemek için: `/logs clear`[/dim]"
-            )
-        return True
-
-    if cmd == "/update":
-        ui.console.print("[dim]Evren-Code güncelleniyor...[/dim]")
-        res = run_self_update(install_deps=False)
-        style = "green" if res.success else "red"
-        ui.console.print(f"[bold {style}]{res.summary}[/bold {style}]\n[dim]{res.details}[/dim]")
-        return True
-
-    if cmd == "/setup":
-        run_onboarding_flow(auth_mgr, ui, force_new_key=True)
-        return True
-
-    if cmd == "/clear":
-        orchestrator.context.clear()
-        orchestrator.plan_manager.clear()
-        orchestrator.logger.clear_logs()
-        session_mgr.clear_workspace_session()
-        ui.console.print("[green]✔ Konuşma geçmişi, aktif plan, log kayıtları ve oturum temizlendi.[/green]")
         return True
 
     rendered_skill = orchestrator.skill_manager.render(cmd, arg)
@@ -1113,7 +519,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 modified = []
                 if hasattr(orchestrator, "undo_manager") and orchestrator.undo_manager._stack:
                     for item in orchestrator.undo_manager._stack:
-                        p = item.get("path")
+                        p = item.get("path") if isinstance(item, dict) else getattr(item, "file_path", None)
                         if p:
                             try:
                                 rel = Path(p).relative_to(workspace)
