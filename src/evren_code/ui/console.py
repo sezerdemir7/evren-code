@@ -260,6 +260,9 @@ class ConsoleUI(ApprovalDelegate):
             self._close_stream_line()
             self._has_printed_agent_header = False
             self._line_needs_newline = False
+            badge = data.get("summary_badge")
+            if badge:
+                self.console.print(f"\n[dim cyan]{badge}[/dim cyan]")
 
     @staticmethod
     def _summarize_args(tool_name: str, args: dict) -> str:

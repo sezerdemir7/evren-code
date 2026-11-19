@@ -14,6 +14,8 @@ from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory, InMemoryHistory
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 
 from evren_code.config import AppConfig, load_config
 from evren_code.core.agent import AgentOrchestrator
@@ -238,6 +240,58 @@ def handle_slash_command(
 
     ui.console.print(f"[yellow]Bilinmeyen komut: {cmd}. Yardım için `/help` yazın.[/yellow]")
     return True
+
+
+def create_prompt_key_bindings() -> KeyBindings:
+    """Configures bracketed multiline paste and Alt+Enter newline bindings for the interactive REPL."""
+    kb = KeyBindings()
+
+    @kb.add(Keys.BracketedPaste)
+    def _on_bracketed_paste(event) -> None:
+        raw_pasted = event.data.replace("\r\n", "\n").replace("\r", "\n")
+        event.current_buffer.insert_text(raw_pasted)
+
+    @kb.add("escape", "enter")
+    def _on_alt_enter(event) -> None:
+        event.current_buffer.insert_text("\n")
+
+    return kb
+
+
+def expand_prompt_mentions(user_input: str, workspace: Path) -> str:
+    """Expands `@filepath` and `@clipboard` / `@pano` (image or text) mentions inline."""
+    from evren_code.tools.vision import get_clipboard_text, save_clipboard_image
+
+    def _mention_replacer(match: re.Match) -> str:
+        token = match.group(1)
+        clean_tok = token.strip().lower()
+        if clean_tok in ("clipboard", "pano"):
+            clip_img = save_clipboard_image(workspace)
+            if clip_img is not None:
+                try:
+                    rel_img = clip_img.relative_to(workspace).as_posix()
+                except ValueError:
+                    rel_img = clip_img.as_posix()
+                return (
+                    f"\n[Panodan Görsel Kaydedildi: `{rel_img}` — "
+                    f"Lütfen `analyze_image(image_path='{rel_img}')` aracıyla bu görseli incele]\n"
+                )
+            clip_txt = get_clipboard_text()
+            if clip_txt:
+                return f"\n[@clipboard]:\n```\n{clip_txt}\n```\n"
+            return match.group(0)
+
+        rel = token.replace("\\", "/")
+        tgt = workspace / rel
+        if tgt.is_file():
+            try:
+                txt = tgt.read_text(encoding="utf-8", errors="replace")
+                return f"\n[@{rel}]:\n```\n{txt}\n```\n"
+            except OSError:
+                pass
+        return match.group(0)
+
+    return re.sub(r"@([a-zA-Z0-9_\-\./\\]+)", _mention_replacer, user_input)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -576,6 +630,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         session: Optional[PromptSession[str]] = PromptSession(
             history=FileHistory(hist_file),
             completer=completer,
+            key_bindings=create_prompt_key_bindings(),
         )
     except Exception:
         session = None
@@ -642,19 +697,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                 break
             continue
 
-        import re
-        def _mention_replacer(match: re.Match) -> str:
-            rel = match.group(1).replace("\\", "/")
-            tgt = workspace / rel
-            if tgt.is_file():
-                try:
-                    txt = tgt.read_text(encoding="utf-8", errors="replace")
-                    return f"\n[@{rel}]:\n```\n{txt}\n```\n"
-                except OSError:
-                    pass
-            return match.group(0)
+        line_cnt = len(user_input.splitlines())
+        if line_cnt > 1:
+            ui.console.print(f"[dim cyan]📋 {line_cnt} satırlık çoklu girdi alındı.[/dim cyan]")
 
-        effective_input = re.sub(r"@([a-zA-Z0-9_\-\./\\]+)", _mention_replacer, user_input)
+        effective_input = expand_prompt_mentions(user_input, workspace)
 
         try:
             turn_output = orchestrator.run_turn(effective_input)

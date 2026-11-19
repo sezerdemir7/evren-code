@@ -161,6 +161,84 @@ def capture_web_page_screenshot(
 _VISION_CACHE: Dict[str, str] = {}
 
 
+def save_clipboard_image(workspace_root: Path) -> Optional[Path]:
+    """Saves an image from the system clipboard to `.evren/screenshots/clipboard_<ts>.png` if present."""
+    shots_dir = workspace_root / ".evren" / "screenshots"
+    shots_dir.mkdir(parents=True, exist_ok=True)
+    out_file = shots_dir / f"clipboard_{int(time.time() * 1000)}.png"
+
+    try:
+        if sys.platform == "win32":
+            ps_script = (
+                "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; "
+                "$img = [System.Windows.Forms.Clipboard]::GetImage(); "
+                f"if ($img -ne $null) {{ $img.Save('{str(out_file)}', [System.Drawing.Imaging.ImageFormat]::Png); Write-Output 'SAVED' }}"
+            )
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if "SAVED" in (res.stdout or "") and out_file.is_file() and out_file.stat().st_size > 0:
+                return out_file
+        elif sys.platform == "darwin":
+            res = subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    f'tell application "System Events" to write (the clipboard as «class PNGf») to (make new file at folder "{str(shots_dir)}" with properties {{name:"{out_file.name}"}})',
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if res.returncode == 0 and out_file.is_file() and out_file.stat().st_size > 0:
+                return out_file
+        elif sys.platform.startswith("linux"):
+            for cmd in (
+                ["wl-paste", "--type", "image/png"],
+                ["xclip", "-selection", "clipboard", "-t", "image/png", "-o"],
+            ):
+                if shutil.which(cmd[0]):
+                    res_b = subprocess.run(cmd, capture_output=True, timeout=5)
+                    if res_b.returncode == 0 and res_b.stdout:
+                        out_file.write_bytes(res_b.stdout)
+                        return out_file
+    except Exception:
+        pass
+    return None
+
+
+def get_clipboard_text() -> str:
+    """Retrieves plain text content from the system clipboard if available."""
+    try:
+        if sys.platform == "win32":
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", "Get-Clipboard"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=3,
+            )
+            if res.returncode == 0:
+                return (res.stdout or "").strip()
+        elif sys.platform == "darwin":
+            res = subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=3)
+            if res.returncode == 0:
+                return (res.stdout or "").strip()
+        elif sys.platform.startswith("linux"):
+            for cmd in (["wl-paste"], ["xclip", "-selection", "clipboard", "-o"]):
+                if shutil.which(cmd[0]):
+                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+                    if res.returncode == 0:
+                        return (res.stdout or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
 def register_vision_tools(
     registry: ToolRegistry,
     config: AppConfig,
@@ -169,7 +247,14 @@ def register_vision_tools(
     """Register vision tools."""
 
     def analyze_image(image_path: str, question: str = "Bu görseli detaylıca analiz et.") -> str:
-        target = resolve_safe_path(config.workspace_root, image_path)
+        clean_path = (image_path or "").strip()
+        if clean_path.lower() in ("clipboard", "@clipboard", "pano", "@pano"):
+            clip_file = save_clipboard_image(config.workspace_root)
+            if not clip_file:
+                return "Hata: Sistem panosunda (clipboard) analiz edilecek bir görsel bulunamadı."
+            target = clip_file
+        else:
+            target = resolve_safe_path(config.workspace_root, clean_path)
         if not target.is_file():
             return f"Hata: '{image_path}' görsel dosyası bulunamadı."
 

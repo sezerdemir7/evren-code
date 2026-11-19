@@ -193,8 +193,12 @@ evren
   * *"Bu projenin mimarisini analiz et ve ana modülleri özetle"*
   * *"src/auth.py içindeki token doğrulama hatasını bul ve düzelt"*
   * *"Son yaptığımız değişiklikler için birim testlerini yaz ve çalıştır"*
-* **`@dosya` Etiketleme:** Mesaj içinde `@src/main.py` şeklinde dosya yolu belirterek o dosyanın içeriğini doğrudan bağlama ekleyebilirsiniz.
+* **`@dosya` ve `@clipboard` (Pano) Etiketleme:**
+  * Mesaj içinde `@src/main.py` şeklinde dosya yolu belirterek o dosyanın içeriğini doğrudan bağlama ekleyebilirsiniz.
+  * Ekran görüntüsü kopyaladığınızda dosyaya kaydetmeye gerek kalmadan `"Bu arayüz hatasını çöz @clipboard"` (veya `@pano`) yazarak panodaki görseli doğrudan `qwen3-vl-30b` Vision modeline gönderebilirsiniz (panoda metin varsa metni ekler).
+* **Çoklu Satır Yapıştırma (Bracketed Paste):** Terminale çok satırlı uzun hata logları (stack trace) veya kod blokları yapıştırdığınızda ilk satırda bölünmeden tek blok halinde alınır (`Alt+Enter` ile alt satıra geçebilirsiniz).
 * **`!komut` ile Hızlı Terminal Komutu:** Ajanı devreye sokmadan terminalde hızlıca komut çalıştırmak için başına `!` koyun (Örn: `!git status` veya `!pytest -q`).
+* **Tur Sonu Mühendislik Özeti & Commit Asistanı:** Her tur sonunda düzenlenen dosya sayısı, eklenen/silinen satır (`+X / -Y`), geçen testler, süre ve token özeti otomatik gösterilir; ayrıca `git_commit_assistant` aracıyla yapılan değişiklikler için Conventional Commit ve PR özeti taslağı oluşturulabilir.
 * **Değişiklik Onay Kapısı (`[E/h/t]`):** Ajan bir dosyayı düzenlemeden veya kabuk komutu çalıştırmadan önce size Diff önizlemesini gösterir:
   * `Enter` veya `e`: İşlemi onayla
   * `h`: İşlemi reddet
@@ -276,8 +280,9 @@ evren --headless --json --role coder -C "/hedef/proje" "JWT refresh token rotasy
 
 ---
 
-### 6. Model Context Protocol (MCP) Sunucusu
+### 6. Model Context Protocol (MCP) Sunucusu & Harici MCP İstemcisi (Client)
 
+#### A. Evren-Code'u MCP Sunucusu Olarak Kullanma (`evren mcp`)
 **Claude Desktop**, **Claude Code**, **Antigravity** veya **Cursor** gibi araçlara EVREN AI modellerini yerel bir MCP sunucusu olarak bağlamak için:
 
 ```bash
@@ -291,6 +296,20 @@ evren mcp
   * `evren_code_review(path, workspace)`: Güvenlik ve kalite odaklı kod incelemesi.
   * `evren_models()`: Aktif model kataloğunu, rolleri ve bağlam limitlerini listeleme.
 * **Hazır Entegrasyon Şablonları:** `integrations/` klasörü altında Claude Desktop (`claude_desktop_config.json`), Claude Code (`CLAUDE.md`), Antigravity (`antigravity_skill.md`) ve Python/Codex (`codex_agent_runner.py`) için hazır şablonlar yer almaktadır.
+
+#### B. Harici MCP Sunucularına Bağlanma (MCP Client — `.evren/mcp.json`)
+Projenizdeki `.evren/mcp.json` veya global `~/.evren-code/mcp.json` dosyasına harici MCP sunucuları (PostgreSQL, GitHub, SQLite, Playwright vb.) tanımladığınızda Evren-Code başlangıçta bu sunuculara otomatik bağlanır ve araçlarını `mcp_<sunucu>_<arac>` adıyla kendi araç havuzuna ekler:
+
+```json
+{
+  "mcpServers": {
+    "sqlite": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sqlite", "app.db"]
+    }
+  }
+}
+```
 
 ---
 

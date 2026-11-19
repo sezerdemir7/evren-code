@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import difflib
+from pathlib import Path
 import re
+import time
 from typing import Any, Dict, List, Optional
 
 from evren_code.core.events import EventType
@@ -37,6 +40,8 @@ class TurnPipeline:
         stream: bool = True,
     ) -> str:
         """Receives user input, performs preparation, executes step loop, and returns final answer."""
+        turn_start_t = time.perf_counter()
+        self.agent.last_turn_summary_badge = ""
         self.agent.last_turn_usage = {
             "prompt_tokens": 0,
             "completion_tokens": 0,
@@ -543,6 +548,11 @@ class TurnPipeline:
                     native_tools_supported=turn_ctx.target_spec.tools,
                     thinking=response.thinking,
                 )
+                elapsed_sec = max(0.01, time.perf_counter() - turn_start_t)
+                summary_badge = self.build_compact_turn_summary(turn_ctx, elapsed_sec)
+                self.agent.last_turn_summary_badge = summary_badge
+                if turn_ctx.modified_files_in_turn or turn_ctx.latest_test_metrics:
+                    self.agent.event_bus.emit(EventType.TURN_COMPLETED, summary_badge=summary_badge)
                 self.agent.logger.complete_turn(turn_ctx.final_content, self.agent.context.estimate_tokens())
                 self.agent._auto_save_session()
                 return turn_ctx.final_content
@@ -594,3 +604,66 @@ class TurnPipeline:
         self.agent.logger.complete_turn(warning_msg, self.agent.context.estimate_tokens())
         self.agent._auto_save_session()
         return warning_msg
+
+    def build_compact_turn_summary(self, turn_ctx: TurnContext, elapsed_sec: float) -> str:
+        """Synthesizes a single-line engineering summary badge for the completed turn."""
+        mod_files = list(dict.fromkeys(turn_ctx.modified_files_in_turn or []))
+        added = 0
+        removed = 0
+
+        if mod_files and hasattr(self.agent, "undo_manager"):
+            first_snaps: Dict[str, Any] = {}
+            for snap in getattr(self.agent.undo_manager, "_stack", []):
+                rel_key = getattr(snap, "relative_display", "").replace("\\", "/")
+                if rel_key and rel_key not in first_snaps:
+                    first_snaps[rel_key] = snap
+
+            ws_root = self.agent.config.workspace_root
+            for rel_fp in mod_files:
+                norm_rel = rel_fp.replace("\\", "/")
+                curr_p = ws_root / norm_rel
+                new_lines: List[str] = []
+                if curr_p.is_file():
+                    try:
+                        new_lines = curr_p.read_text(encoding="utf-8", errors="replace").splitlines()
+                    except Exception:
+                        new_lines = []
+                snap_obj = first_snaps.get(norm_rel)
+                if snap_obj is not None:
+                    old_text = getattr(snap_obj, "previous_content", "") or ""
+                    old_lines = old_text.splitlines() if getattr(snap_obj, "existed_before", False) else []
+                else:
+                    old_lines = []
+                for dline in difflib.ndiff(old_lines, new_lines):
+                    if dline.startswith("+ "):
+                        added += 1
+                    elif dline.startswith("- "):
+                        removed += 1
+
+        parts: List[str] = []
+        if mod_files:
+            parts.append(f"✔ {len(mod_files)} dosya düzenlendi (+{added} / -{removed} satır)")
+        else:
+            parts.append("✔ Tur tamamlandı")
+
+        if turn_ctx.latest_test_metrics is not None:
+            m = turn_ctx.latest_test_metrics
+            total_passed = getattr(m, "passed", 0)
+            total_failed = getattr(m, "failed", 0) + getattr(m, "errors", 0)
+            if total_passed > 0 and total_failed == 0:
+                parts.append(f"{total_passed} test geçti")
+            elif total_failed > 0:
+                parts.append(f"{total_passed} geçti / {total_failed} başarısız")
+
+        parts.append(f"{elapsed_sec:.1f}s")
+
+        tokens = (
+            self.agent.last_turn_usage.get("total_tokens", 0)
+            or self.agent.context.estimate_tokens()
+        )
+        if tokens >= 1000:
+            parts.append(f"~{tokens / 1000.0:.1f}K token")
+        else:
+            parts.append(f"~{tokens} token")
+
+        return " · ".join(parts)
