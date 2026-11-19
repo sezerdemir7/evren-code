@@ -1,0 +1,604 @@
+[
+  {
+    "id": "eval_01_surgical_edit",
+    "category": "editing",
+    "name": "Surgical Edit",
+    "description": "Modify the return value of a single function in an existing Python file without side effects.",
+    "setup_files": {
+      "math_utils.py": "def calculate_discount(price: float) -> float:\n    # Standard discount rate\n    return price * 0.90\n"
+    },
+    "user_prompt": "Update the discount rate in math_utils.py from 90% to 85% (i.e. return price * 0.85) surgically.",
+    "mock_steps": [
+      {
+        "thinking": "Updating the discount return statement in math_utils.py to return price * 0.85.",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "math_utils.py",
+              "target": "return price * 0.90",
+              "replacement": "return price * 0.85"
+            }
+          }
+        ]
+      },
+      {
+        "content": "The discount rate in math_utils.py has been successfully updated to 85%."
+      }
+    ],
+    "expected_files": {
+      "math_utils.py": "return price * 0.85"
+    },
+    "max_steps": 5
+  },
+  {
+    "id": "eval_02_loop_resistance",
+    "category": "loop_resistance",
+    "name": "Loop Resistance",
+    "description": "Edit a file directly after reading without entering redundant reading loops.",
+    "setup_files": {
+      "config.py": "DEBUG = True\nPORT = 8080\nSECRET_KEY = 'insecure'\n"
+    },
+    "user_prompt": "Inspect config.py and set DEBUG to False.",
+    "mock_steps": [
+      {
+        "thinking": "Reading config.py to identify the DEBUG configuration line.",
+        "tool_calls": [
+          {
+            "name": "read_file",
+            "arguments": {
+              "path": "config.py"
+            }
+          }
+        ]
+      },
+      {
+        "thinking": "Setting DEBUG to False.",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "config.py",
+              "target": "DEBUG = True",
+              "replacement": "DEBUG = False"
+            }
+          }
+        ]
+      },
+      {
+        "content": "Updated DEBUG = False in config.py."
+      }
+    ],
+    "expected_files": {
+      "config.py": "DEBUG = False"
+    },
+    "max_steps": 5
+  },
+  {
+    "id": "eval_03_syntax_repair",
+    "category": "syntax",
+    "name": "Syntax Repair",
+    "description": "Detect and fix malformed JSON syntax such as unclosed braces or trailing commas.",
+    "setup_files": {
+      "app.json": "{\n  \"name\": \"my-app\",\n  \"version\": \"1.0.0\"\n"
+    },
+    "user_prompt": "app.json seems broken. Inspect and fix it to make it valid JSON.",
+    "mock_steps": [
+      {
+        "thinking": "Adding closing brace to make app.json valid JSON.",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "app.json",
+              "target": "  \"version\": \"1.0.0\"\n",
+              "replacement": "  \"version\": \"1.0.0\"\n}\n"
+            }
+          }
+        ]
+      },
+      {
+        "content": "Fixed app.json with valid JSON syntax."
+      }
+    ],
+    "expected_files": {
+      "app.json": "}"
+    },
+    "max_steps": 5
+  },
+  {
+    "id": "eval_04_create_and_import",
+    "category": "multi_file",
+    "name": "File Creation and Import",
+    "description": "Create a new helper module and import it into the main file.",
+    "setup_files": {
+      "main.py": "def main():\n    print('Hello world')\n"
+    },
+    "user_prompt": "Create logger.py containing `def log(msg): print(f'[LOG] {msg}')`. Then import and call this function from main.py.",
+    "mock_steps": [
+      {
+        "thinking": "Creating logger.py module.",
+        "tool_calls": [
+          {
+            "name": "write_file",
+            "arguments": {
+              "path": "logger.py",
+              "content": "def log(msg):\n    print(f'[LOG] {msg}')\n"
+            }
+          }
+        ]
+      },
+      {
+        "thinking": "Adding logger import to main.py.",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "main.py",
+              "target": "def main():\n    print('Hello world')",
+              "replacement": "from logger import log\n\ndef main():\n    log('Hello world')"
+            }
+          }
+        ]
+      },
+      {
+        "content": "logger.py created and imported in main.py."
+      }
+    ],
+    "expected_files": {
+      "logger.py": "def log(msg):",
+      "main.py": "from logger import log"
+    },
+    "max_steps": 6
+  },
+  {
+    "id": "eval_05_bug_fix_type_error",
+    "category": "debugging",
+    "name": "Type Mismatch Bug Fix",
+    "description": "Fix string and integer concatenation TypeError via str conversion.",
+    "setup_files": {
+      "converter.py": "def format_age(name: str, age: int) -> str:\n    return name + ': ' + age\n"
+    },
+    "user_prompt": "Fix the line causing TypeError in converter.py by converting age to a string.",
+    "mock_steps": [
+      {
+        "thinking": "Fixing TypeError in converter.py with str(age).",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "converter.py",
+              "target": "return name + ': ' + age",
+              "replacement": "return name + ': ' + str(age)"
+            }
+          }
+        ]
+      },
+      {
+        "content": "Fixed TypeError in converter.py by converting age to string."
+      }
+    ],
+    "expected_files": {
+      "converter.py": "str(age)"
+    },
+    "max_steps": 5
+  },
+  {
+    "id": "eval_06_unit_test_creation",
+    "category": "testing",
+    "name": "Unit Test Creation",
+    "description": "Create a unit test file using Python's standard unittest module.",
+    "setup_files": {
+      "calculator.py": "def add(a: int, b: int) -> int:\n    return a + b\n"
+    },
+    "user_prompt": "Create test_calculator.py using unittest to verify add(2, 3) == 5 for calculator.py.",
+    "mock_steps": [
+      {
+        "thinking": "Creating test_calculator.py unit test suite.",
+        "tool_calls": [
+          {
+            "name": "write_file",
+            "arguments": {
+              "path": "test_calculator.py",
+              "content": "import unittest\nfrom calculator import add\n\nclass TestCalculator(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(add(2, 3), 5)\n"
+            }
+          }
+        ]
+      },
+      {
+        "content": "test_calculator.py successfully created."
+      }
+    ],
+    "expected_files": {
+      "test_calculator.py": "class TestCalculator"
+    },
+    "max_steps": 5
+  },
+  {
+    "id": "eval_07_refactor_extract_function",
+    "category": "refactoring",
+    "name": "Extract Method Refactoring",
+    "description": "Extract a repeated snippet into a reusable helper function.",
+    "setup_files": {
+      "processor.py": "def process_data(items):\n    # Clean\n    res1 = [x.strip().lower() for x in items if x]\n    return res1\n"
+    },
+    "user_prompt": "In processor.py, extract a helper function `clean_item(x: str) -> str` and use it inside process_data.",
+    "mock_steps": [
+      {
+        "thinking": "Extracting clean_item helper function and updating process_data.",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "processor.py",
+              "target": "def process_data(items):\n    # Clean\n    res1 = [x.strip().lower() for x in items if x]\n    return res1",
+              "replacement": "def clean_item(x: str) -> str:\n    return x.strip().lower()\n\ndef process_data(items):\n    # Clean\n    res1 = [clean_item(x) for x in items if x]\n    return res1"
+            }
+          }
+        ]
+      },
+      {
+        "content": "Extracted clean_item function and updated process_data."
+      }
+    ],
+    "expected_files": {
+      "processor.py": "def clean_item("
+    },
+    "max_steps": 5
+  },
+  {
+    "id": "eval_08_security_env_handling",
+    "category": "security",
+    "name": "Move Sensitive Key to Environment Variable",
+    "description": "Convert hardcoded API secret into os.getenv lookup.",
+    "setup_files": {
+      "client.py": "API_KEY = 'sk-live-secret-12345'\n\ndef fetch():\n    pass\n"
+    },
+    "user_prompt": "Secure client.py by replacing the hardcoded API_KEY with `os.getenv('API_KEY', '')` and importing os.",
+    "mock_steps": [
+      {
+        "thinking": "Updating API_KEY to read from environment variable via os.getenv.",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "client.py",
+              "target": "API_KEY = 'sk-live-secret-12345'",
+              "replacement": "import os\n\nAPI_KEY = os.getenv('API_KEY', '')"
+            }
+          }
+        ]
+      },
+      {
+        "content": "Moved API_KEY to environment variable."
+      }
+    ],
+    "expected_files": {
+      "client.py": "os.getenv("
+    },
+    "max_steps": 5
+  },
+  {
+    "id": "eval_09_fastapi_endpoint",
+    "category": "architecture",
+    "name": "Add API Endpoint",
+    "description": "Add a new GET endpoint to an existing FastAPI router file.",
+    "setup_files": {
+      "api.py": "from fastapi import FastAPI\napp = FastAPI()\n\n@app.get('/health')\ndef health():\n    return {'status': 'ok'}\n"
+    },
+    "user_prompt": "Add a `@app.get('/version')` endpoint returning `{'version': '1.0.0'}` to api.py.",
+    "mock_steps": [
+      {
+        "thinking": "Adding /version endpoint to api.py.",
+        "tool_calls": [
+          {
+            "name": "append_file",
+            "arguments": {
+              "path": "api.py",
+              "content": "\n@app.get('/version')\ndef health_version():\n    return {'version': '1.0.0'}\n"
+            }
+          }
+        ]
+      },
+      {
+        "content": "Added /version FastAPI route successfully."
+      }
+    ],
+    "expected_files": {
+      "api.py": "@app.get('/version')"
+    },
+    "max_steps": 5
+  },
+  {
+    "id": "eval_10_error_boundary",
+    "category": "resilience",
+    "name": "Exception Handling and Safe Return",
+    "description": "Wrap risky operations in try/except block to handle ZeroDivisionError gracefully.",
+    "setup_files": {
+      "math_ops.py": "def divide(a: float, b: float) -> float:\n    return a / b\n"
+    },
+    "user_prompt": "Make divide in math_ops.py safe: handle ZeroDivisionError when b == 0 and return 0.0.",
+    "mock_steps": [
+      {
+        "thinking": "Wrapping divide function in try/except ZeroDivisionError.",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "math_ops.py",
+              "target": "def divide(a: float, b: float) -> float:\n    return a / b",
+              "replacement": "def divide(a: float, b: float) -> float:\n    try:\n        return a / b\n    except ZeroDivisionError:\n        return 0.0"
+            }
+          }
+        ]
+      },
+      {
+        "content": "ZeroDivisionError handling added to divide function."
+      }
+    ],
+    "expected_files": {
+      "math_ops.py": "except ZeroDivisionError:"
+    },
+    "max_steps": 5,
+    "max_lines": 30
+  },
+  {
+    "id": "eval_11_lean_code_anti_bloat",
+    "category": "lean_code",
+    "name": "Lean Code and Anti-Bloat",
+    "description": "Implement score summary logic data-driven without repetitive code in under 40 lines.",
+    "setup_files": {
+      "stats.py": "# Module for calculating summary stats from student scores\n"
+    },
+    "user_prompt": "In stats.py, implement `summarize_scores(scores: list[int]) -> dict`. For empty list return `{'count': 0, 'avg': 0.0, 'passed': 0}`. For non-empty return item count (`count`), rounded average (`avg`, 2 decimals), and count of scores >= 50 (`passed`). Keep it clean and under 40 lines.",
+    "mock_steps": [
+      {
+        "thinking": "Writing lean summarize_scores function.",
+        "tool_calls": [
+          {
+            "name": "write_file",
+            "arguments": {
+              "path": "stats.py",
+              "content": "def summarize_scores(scores: list[int]) -> dict:\n    if not scores:\n        return {'count': 0, 'avg': 0.0, 'passed': 0}\n    c = len(scores)\n    avg = round(sum(scores) / c, 2)\n    passed = sum(1 for s in scores if s >= 50)\n    return {'count': c, 'avg': avg, 'passed': passed}\n"
+            }
+          }
+        ]
+      },
+      {
+        "content": "stats.py successfully written with concise, lean logic."
+      }
+    ],
+    "expected_files": {
+      "stats.py": "def summarize_scores("
+    },
+    "verify_python": "from stats import summarize_scores; assert summarize_scores([]) == {'count': 0, 'avg': 0.0, 'passed': 0}; assert summarize_scores([40, 60, 80]) == {'count': 3, 'avg': 60.0, 'passed': 2}",
+    "max_steps": 4,
+    "max_lines": 50
+  },
+  {
+    "id": "eval_12_end_to_end_delivery",
+    "category": "end_to_end",
+    "name": "End-to-End Multi-File Implementation",
+    "description": "Create data model and service layers and deliver fully functional working code in one turn.",
+    "setup_files": {
+      "models.py": "from dataclasses import dataclass\n\n@dataclass\nclass TaskItem:\n    id: int\n    title: str\n    done: bool = False\n"
+    },
+    "user_prompt": "Using `TaskItem` in models.py, create `service.py` with `complete_task(tasks: list[TaskItem], task_id: int) -> bool` which sets `done = True` on matching task and returns True, or returns False if not found.",
+    "mock_steps": [
+      {
+        "thinking": "Creating service.py with complete_task implementation.",
+        "tool_calls": [
+          {
+            "name": "write_file",
+            "arguments": {
+              "path": "service.py",
+              "content": "from models import TaskItem\n\ndef complete_task(tasks: list[TaskItem], task_id: int) -> bool:\n    for t in tasks:\n        if t.id == task_id:\n            t.done = True\n            return True\n    return False\n"
+            }
+          }
+        ]
+      },
+      {
+        "content": "service.py delivered successfully."
+      }
+    ],
+    "expected_files": {
+      "service.py": "def complete_task("
+    },
+    "verify_python": "from models import TaskItem; from service import complete_task; items = [TaskItem(1, 'Test')]; assert complete_task(items, 1) is True and items[0].done is True; assert complete_task(items, 99) is False",
+    "max_steps": 5,
+    "max_lines": 60
+  },
+  {
+    "id": "eval_13_fuzzy_quote_edit",
+    "category": "editing",
+    "name": "Micro-Surgical Quote Tolerance (Fuzzy Quote Edit)",
+    "description": "Match target line despite differences in quote styles between prompt and file.",
+    "setup_files": {
+      "settings.py": "HOST = '0.0.0.0'\nPORT = 8000\nENV = 'production'\n"
+    },
+    "user_prompt": "In settings.py, change ENV to 'staging'.",
+    "mock_steps": [
+      {
+        "thinking": "Updating ENV value to 'staging' in settings.py.",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "settings.py",
+              "target": "ENV = \"production\"",
+              "replacement": "ENV = 'staging'"
+            }
+          }
+        ]
+      },
+      {
+        "content": "ENV updated to 'staging' in settings.py."
+      }
+    ],
+    "expected_files": {
+      "settings.py": "ENV = 'staging'"
+    },
+    "verify_python": "from settings import ENV; assert ENV == 'staging'",
+    "max_steps": 4
+  },
+  {
+    "id": "eval_14_apply_unified_diff",
+    "category": "patching",
+    "name": "Unified Diff Patch Application",
+    "description": "Apply standard unified diff patch directly to target file.",
+    "setup_files": {
+      "counter.py": "class Counter:\n    def __init__(self):\n        self.val = 0\n\n    def inc(self):\n        self.val += 1\n"
+    },
+    "user_prompt": "Add dec(self) method to counter.py using a unified diff patch.",
+    "mock_steps": [
+      {
+        "thinking": "Applying patch to counter.py using apply_patch.",
+        "tool_calls": [
+          {
+            "name": "apply_patch",
+            "arguments": {
+              "path": "counter.py",
+              "patch": "@@ -4,3 +4,5 @@\n     def inc(self):\n         self.val += 1\n+    def dec(self):\n+        self.val -= 1\n"
+            }
+          }
+        ]
+      },
+      {
+        "content": "Applied dec method to counter.py via unified diff patch."
+      }
+    ],
+    "expected_files": {
+      "counter.py": "def dec(self):"
+    },
+    "verify_python": "from counter import Counter; c = Counter(); c.inc(); c.dec(); assert c.val == 0",
+    "max_steps": 4
+  },
+  {
+    "id": "eval_15_tdd_reproduce_and_fix",
+    "category": "debugging",
+    "name": "TDD Reproduce and Fix",
+    "description": "Demonstrate bug reproduction via test and patch source logic.",
+    "setup_files": {
+      "validator.py": "def is_valid_email(email: str) -> bool:\n    return '@' in email\n"
+    },
+    "user_prompt": "In validator.py, ensure email validation disallows spaces ('user @test.com' should be invalid). Fix it.",
+    "mock_steps": [
+      {
+        "thinking": "Fixing space check vulnerability in validator.py.",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "validator.py",
+              "target": "return '@' in email",
+              "replacement": "return '@' in email and ' ' not in email"
+            }
+          }
+        ]
+      },
+      {
+        "content": "Email validator updated to reject spaces."
+      }
+    ],
+    "expected_files": {
+      "validator.py": "' ' not in email"
+    },
+    "verify_python": "from validator import is_valid_email; assert is_valid_email('test@example.com') is True; assert is_valid_email('user @test.com') is False",
+    "max_steps": 5
+  },
+  {
+    "id": "eval_16_multi_file_refactoring",
+    "category": "refactoring",
+    "name": "Synchronous Multi-File Refactoring",
+    "description": "Rename a function in one module and synchronously update its callers.",
+    "setup_files": {
+      "auth.py": "def get_user_token(user_id: int) -> str:\n    return f'token_{user_id}'\n",
+      "handler.py": "from auth import get_user_token\n\ndef handle(uid: int) -> str:\n    return get_user_token(uid)\n"
+    },
+    "user_prompt": "Rename get_user_token to get_auth_token in auth.py and update its usage in handler.py.",
+    "mock_steps": [
+      {
+        "thinking": "Renaming function in auth.py.",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "auth.py",
+              "target": "def get_user_token(user_id: int) -> str:",
+              "replacement": "def get_auth_token(user_id: int) -> str:"
+            }
+          }
+        ]
+      },
+      {
+        "thinking": "Updating import and function call in handler.py.",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "handler.py",
+              "target": "from auth import get_user_token\n\ndef handle(uid: int) -> str:\n    return get_user_token(uid)",
+              "replacement": "from auth import get_auth_token\n\ndef handle(uid: int) -> str:\n    return get_auth_token(uid)"
+            }
+          }
+        ]
+      },
+      {
+        "content": "Synchronously refactored auth.py and handler.py."
+      }
+    ],
+    "expected_files": {
+      "auth.py": "def get_auth_token(",
+      "handler.py": "from auth import get_auth_token"
+    },
+    "verify_python": "from handler import handle; assert handle(42) == 'token_42'",
+    "max_steps": 6
+  },
+  {
+    "id": "eval_17_anti_regression_preservation",
+    "category": "resilience",
+    "name": "Anti-Regression Feature Extension",
+    "description": "Add new functions and unit tests without breaking existing test assertions.",
+    "setup_files": {
+      "calc.py": "def mul(a: int, b: int) -> int:\n    return a * b\n",
+      "test_calc.py": "import unittest\nfrom calc import mul\n\nclass TestCalc(unittest.TestCase):\n    def test_mul(self):\n        self.assertEqual(mul(3, 4), 12)\n"
+    },
+    "user_prompt": "Add square(n: int) -> int to calc.py and add test_square to test_calc.py. Do not modify or break the existing test_mul.",
+    "mock_steps": [
+      {
+        "thinking": "Adding square function to calc.py.",
+        "tool_calls": [
+          {
+            "name": "append_file",
+            "arguments": {
+              "path": "calc.py",
+              "content": "\ndef square(n: int) -> int:\n    return n * n\n"
+            }
+          }
+        ]
+      },
+      {
+        "thinking": "Adding test_square method to test_calc.py.",
+        "tool_calls": [
+          {
+            "name": "edit_file",
+            "arguments": {
+              "path": "test_calc.py",
+              "target": "class TestCalc(unittest.TestCase):\n    def test_mul(self):\n        self.assertEqual(mul(3, 4), 12)",
+              "replacement": "class TestCalc(unittest.TestCase):\n    def test_mul(self):\n        self.assertEqual(mul(3, 4), 12)\n\n    def test_square(self):\n        from calc import square\n        self.assertEqual(square(5), 25)"
+            }
+          }
+        ]
+      },
+      {
+        "content": "Added square function and its test while keeping existing tests intact."
+      }
+    ],
+    "expected_files": {
+      "calc.py": "def square(n: int)",
+      "test_calc.py": "def test_square("
+    },
+    "verify_python": "import unittest; loader = unittest.TestLoader(); suite = loader.discover('.', pattern='test_calc.py'); runner = unittest.TextTestRunner(); res = runner.run(suite); assert res.wasSuccessful() and res.testsRun >= 2",
+    "max_steps": 5
+  }
+]

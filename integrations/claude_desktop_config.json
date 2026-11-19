@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "evren-code": {
+      "command": "evren",
+      "args": ["mcp"],
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      }
+    }
+  }
+}
