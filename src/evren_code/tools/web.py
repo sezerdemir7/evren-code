@@ -8,9 +8,11 @@ Statically validates web contracts across HTML, CSS, and JS in 0ms.
 from __future__ import annotations
 
 import difflib
+import html
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
+from urllib.parse import parse_qs, unquote, urlparse
 
 import httpx
 
@@ -35,8 +37,114 @@ def strip_html_tags(raw_html: str) -> str:
     return _MULTI_WHITESPACE_RE.sub("\n\n", cleaned)
 
 
+def parse_duckduckgo_html(raw_html: str, max_results: int = 5) -> List[Dict[str, str]]:
+    """Extracts search result items (title, url, snippet) from DuckDuckGo HTML response."""
+    results: List[Dict[str, str]] = []
+    link_matches = list(
+        re.finditer(
+            r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+            raw_html,
+            re.DOTALL | re.IGNORECASE,
+        )
+    )
+    snippet_matches = list(
+        re.finditer(
+            r'<(?:a|div|span)[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</(?:a|div|span)>',
+            raw_html,
+            re.DOTALL | re.IGNORECASE,
+        )
+    )
+
+    for idx, lmatch in enumerate(link_matches):
+        if len(results) >= max_results:
+            break
+        raw_href = html.unescape(lmatch.group(1).strip())
+        raw_title = strip_html_tags(html.unescape(lmatch.group(2))).replace("\n", " ").strip()
+
+        resolved_url = raw_href
+        if "uddg=" in raw_href:
+            parsed = urlparse(raw_href)
+            qs = parse_qs(parsed.query)
+            if "uddg" in qs and qs["uddg"]:
+                resolved_url = unquote(qs["uddg"][0])
+        elif raw_href.startswith("//"):
+            resolved_url = "https:" + raw_href
+
+        snippet = ""
+        if idx < len(snippet_matches):
+            snippet = strip_html_tags(html.unescape(snippet_matches[idx].group(1))).replace("\n", " ").strip()
+
+        if resolved_url.startswith(("http://", "https://")) and raw_title:
+            results.append(
+                {
+                    "title": raw_title,
+                    "url": resolved_url,
+                    "snippet": snippet,
+                }
+            )
+    return results
+
+
 def register_web_tools(registry: ToolRegistry, config: AppConfig) -> None:
-    """Registers web inspection tools (`fetch_url`, `http_request`, `validate_web_contract`)."""
+    """Registers web inspection and search tools (`web_search`, `fetch_url`, `http_request`, `validate_web_contract`)."""
+
+    def web_search(query: str, max_results: int = 5, domain: Optional[str] = None) -> str:
+        """Performs a live web search for technical documentation, error messages, or packages."""
+        clean_q = (query or "").strip()
+        if not clean_q:
+            return "Error: Search query cannot be empty."
+
+        effective_q = f"site:{domain.strip()} {clean_q}" if (domain and domain.strip()) else clean_q
+        limit = min(max(1, int(max_results or 5)), 10)
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml",
+        }
+        try:
+            with httpx.Client(
+                timeout=config.tools.url_fetch_timeout_seconds,
+                follow_redirects=True,
+                headers=headers,
+            ) as client:
+                resp = client.post(
+                    "https://html.duckduckgo.com/html/",
+                    data={"q": effective_q},
+                )
+        except Exception as exc:
+            return f"Error: Web search request failed for '{effective_q}': {exc}"
+
+        items = parse_duckduckgo_html(resp.text, max_results=limit)
+        if not items:
+            return f"No web search results found for '{effective_q}'."
+
+        lines = [f"Web Search Results for '{effective_q}' ({len(items)} results):"]
+        for idx, item in enumerate(items, start=1):
+            lines.append(f"\n{idx}. **{item['title']}**")
+            lines.append(f"   URL: {item['url']}")
+            if item.get("snippet"):
+                lines.append(f"   Snippet: {item['snippet']}")
+        lines.append("\nTip: Call `fetch_url(url=...)` to read the full content of any relevant result.")
+        return "\n".join(lines)
+
+    registry.register(
+        name="web_search",
+        description=(
+            "Searches the web for up-to-date library documentation, compiler/runtime error messages, "
+            "and API references without requiring an API key. Returns top titles, URLs, and snippets."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query (e.g. 'FastAPI lifespan event syntax' or error message)."},
+                "max_results": {"type": "integer", "description": "Maximum number of results to return (1-10, default: 5).", "default": 5},
+                "domain": {"type": "string", "description": "Optional domain filter (e.g. 'docs.python.org', 'github.com')."},
+            },
+            "required": ["query"],
+        },
+        handler=web_search,
+        requires_approval=False,
+    )
 
     def fetch_url(url: str) -> str:
         if not url.startswith(("http://", "https://")):

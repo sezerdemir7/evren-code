@@ -420,6 +420,20 @@ class AgentOrchestrator:
         self._register_planner_tools()
         self._register_subagent_tools()
         self._register_interaction_tools()
+        self._register_external_mcp_tools()
+
+    def _register_external_mcp_tools(self) -> None:
+        """Discovers and registers tools from external MCP servers configured in `.evren/mcp.json`."""
+        try:
+            from evren_code.core.mcp_client import MCPClientManager
+
+            self.mcp_client_manager = MCPClientManager(
+                workspace_root=self.config.workspace_root,
+                global_dir=self.config.api.storage_dir,
+            )
+            self.mcp_client_manager.connect_and_register_tools(self.registry)
+        except Exception as exc:
+            logger.debug("External MCP client registration skipped: %s", exc)
 
     def _register_interaction_tools(self) -> None:
         """Register interaction tools."""
@@ -1116,6 +1130,12 @@ class AgentOrchestrator:
                 self.bg_process_manager.stop_all()
             except Exception as exc:
                 logger.debug("Arka plan süreçleri kapatılırken hata: %s", exc)
+
+        if hasattr(self, "mcp_client_manager") and self.mcp_client_manager:
+            try:
+                self.mcp_client_manager.close_all()
+            except Exception as exc:
+                logger.debug("External MCP connections close error: %s", exc)
 
     def __enter__(self) -> "AgentOrchestrator":
         return self
