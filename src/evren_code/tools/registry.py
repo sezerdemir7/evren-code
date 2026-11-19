@@ -24,6 +24,14 @@ CORE_CODING_TOOLS: Set[str] = {
     "list_directory",
     "find_files",
     "search_code",
+    "semantic_search_code",
+    "get_repo_map",
+    "get_project_overview",
+    "skeletonize_code",
+    "search_symbols",
+    "analyze_change_impact",
+    "find_related_tests",
+    "run_verification",
     "git_info",
     "run_command",
     "get_background_output",
@@ -106,6 +114,7 @@ class ToolRegistry:
         context_text: str = "",
         has_active_background: bool = False,
         sticky_set: Optional[Set[str]] = None,
+        complexity_level: Optional[str] = None,
     ) -> Set[str]:
         """Select active tools."""
         active = set(sticky_set) if sticky_set else set(CORE_CODING_TOOLS)
@@ -115,8 +124,13 @@ class ToolRegistry:
         active.add("lsp_find_references")
 
         c_lower = context_text.lower()
+        comp_lower = (complexity_level or "").lower()
+        is_non_trivial = comp_lower in ("medium", "complex")
 
-        if any(w in c_lower for w in ("sembol", "symbol", "etki", "impact", "referans", "caller", "callee", "refactor")):
+        if is_non_trivial or any(
+            w in c_lower
+            for w in ("sembol", "symbol", "etki", "impact", "referans", "caller", "callee", "refactor", "hata", "bug", "fix", "düzelt", "test")
+        ):
             active.update({
                 "search_symbols",
                 "find_symbol_definition",
@@ -127,7 +141,10 @@ class ToolRegistry:
                 "index_codebase",
             })
 
-        if any(w in c_lower for w in ("mimari", "architecture", "overview", "genel bakış", "repo_map", "modül", "inspect")):
+        if is_non_trivial or any(
+            w in c_lower
+            for w in ("mimari", "architecture", "overview", "genel bakış", "repo_map", "modül", "inspect", "analiz", "incele", "proje")
+        ):
             active.update({
                 "get_repo_map",
                 "get_project_overview",

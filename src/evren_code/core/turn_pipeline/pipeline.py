@@ -351,11 +351,20 @@ class TurnPipeline:
                 recent_msgs = self.agent.context._messages[-3:]
                 ctx_text = " ".join(str(m.get("content", "")) for m in recent_msgs)
 
-            active_tools = self.agent.registry.select_active_tools(
-                context_text=ctx_text,
-                has_active_background=has_active_bg,
-                sticky_set=turn_ctx.active_tools_sticky,
+            comp_level = (
+                turn_ctx.complexity_assessment.level.value
+                if (turn_ctx.complexity_assessment and hasattr(turn_ctx.complexity_assessment.level, "value"))
+                else None
             )
+            if getattr(self.agent.config.agent, "lean_tools_mode", True):
+                active_tools = self.agent.registry.select_active_tools(
+                    context_text=ctx_text,
+                    has_active_background=has_active_bg,
+                    sticky_set=turn_ctx.active_tools_sticky,
+                    complexity_level=comp_level,
+                )
+            else:
+                active_tools = {t.name for t in self.agent.registry.list_tools()}
             turn_ctx.active_tools_sticky.update(active_tools)
 
             extra_sys = ""
