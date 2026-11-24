@@ -16,7 +16,7 @@ def get_agent_spec_data() -> Dict[str, Any]:
     return {
         "name": "evren-code",
         "description": "Autonomous software engineering subagent and LLM bridge powered by the EVREN AI platform.",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "primary_capabilities": [
             "Autonomous Software Engineering (ReAct Loop, Surgical Diff, Automated Test and Repair)",
             "Direct Raw LLM Completions (DeepSeek-V4.1 Flash, Qwen-3.8, GLM-5.3, Gemma-4)",
