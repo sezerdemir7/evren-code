@@ -74,6 +74,32 @@ class EvrenAuthManager:
             )
         return cleaned
 
+    def mask_key(self, key: Optional[str] = None) -> str:
+        """Return a masked representation of an API key safe for terminal display."""
+        target = self.sanitize_key(key if key is not None else (self.config.api.api_key or ""))
+        if not target:
+            return "(tanımlı değil)"
+        prefix = self.config.api.key_prefix
+        if target.startswith(prefix):
+            secret_part = target[len(prefix) :]
+            if len(secret_part) > 6:
+                return f"{prefix}****...{secret_part[-4:]}"
+            return f"{prefix}****"
+        if len(target) > 8:
+            return f"{target[:4]}****...{target[-4:]}"
+        return "****"
+
+    def get_key_source(self) -> str:
+        """Return human-readable source of the currently active API key."""
+        if os.environ.get("EVREN_API_KEY"):
+            return "EVREN_API_KEY (ortam değişkeni / .env)"
+        key_file = self.config.api.key_file_path
+        if key_file.is_file():
+            return str(key_file)
+        if self.config.api.api_key:
+            return "oturum belleği"
+        return "(kayıtlı anahtar yok)"
+
     def load_stored_key(self) -> Optional[str]:
         """Load stored key (.env)."""
         if self.config.api.api_key:

@@ -335,7 +335,7 @@ class EvrenLLMClient:
         api_key = self.config.api.api_key
         if not api_key:
             raise EvrenAPIError(
-                "EVREN API anahtarı tanımlı değil. Lütfen `evren --setup` çalıştırın veya EVREN_API_KEY tanımlayın."
+                "EVREN API anahtarı tanımlı değil. Oturum içinde `/auth` yazabilir, `evren --setup` çalıştırabilir veya EVREN_API_KEY tanımlayabilirsiniz."
             )
         return {
             "Authorization": f"Bearer {api_key}",
@@ -547,8 +547,13 @@ class EvrenLLMClient:
                         continue
 
                 if resp.status_code != 200:
+                    auth_hint = (
+                        " (API anahtarınızı yenilemek için oturum içinde `/auth` yazabilir veya terminalde `evren --setup` çalıştırabilirsiniz.)"
+                        if resp.status_code == 401
+                        else ""
+                    )
                     raise EvrenAPIError(
-                        f"EVREN API Hatası (HTTP {resp.status_code}): {resp.text[:400]}"
+                        f"EVREN API Hatası (HTTP {resp.status_code}): {resp.text[:400]}{auth_hint}"
                     )
 
                 data = resp.json()
@@ -686,8 +691,13 @@ class EvrenLLMClient:
 
                         if resp.status_code != 200:
                             body = resp.read().decode("utf-8", errors="replace")
+                            auth_hint = (
+                                " (API anahtarınızı yenilemek için oturum içinde `/auth` yazabilir veya terminalde `evren --setup` çalıştırabilirsiniz.)"
+                                if resp.status_code == 401
+                                else ""
+                            )
                             raise EvrenAPIError(
-                                f"EVREN API Akış Hatası (HTTP {resp.status_code}): {body[:400]}"
+                                f"EVREN API Akış Hatası (HTTP {resp.status_code}): {body[:400]}{auth_hint}"
                             )
 
                         tool_arg_repetition = False

@@ -390,7 +390,7 @@ class ConsoleUI(ApprovalDelegate):
             f"  [bold]Aktif Model :[/bold] [bold white]{active_model.name}[/bold white] ([green]{active_model.id}[/green])\n"
             f"  [bold]Yetenekler  :[/bold] {' · '.join(caps)}\n"
             f"  [bold]Çalışma Alanı:[/bold] [dim]{workspace}[/dim]\n\n"
-            f"[dim]Komutlar: /help · /model · /undo · /status · /compact · /clear · /exit[/dim]"
+            f"[dim]Komutlar: /help · /model · /auth · /undo · /status · /compact · /clear · /exit[/dim]"
         )
         self.console.print(Panel(info, border_style="cyan", padding=(1, 2)))
 

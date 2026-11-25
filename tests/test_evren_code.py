@@ -1448,6 +1448,102 @@ class EvrenCodeTestSuite(unittest.TestCase):
         self.assertEqual(len(filtered), 1)
         self.assertEqual(filtered[0]["id"], "eval_11_lean_code_anti_bloat")
 
+    def test_auth_slash_command_key_rotation_and_safe_history(self) -> None:
+        """Verify /auth and /key slash commands update active session key safely and redact history."""
+        import io
+        from unittest.mock import patch
+        from prompt_toolkit.completion import CompleteEvent
+        from prompt_toolkit.document import Document
+        from rich.console import Console
+        from evren_code.cli import (
+            SLASH_COMMANDS,
+            SafeFileHistory,
+            SlashCommandCompleter,
+            handle_slash_command,
+        )
+        from evren_code.ui.console import ConsoleUI
+
+        self.assertIn("/auth", SLASH_COMMANDS)
+
+        # 1. Completer offers /auth and `status` subcommand
+        completer = SlashCommandCompleter(
+            commands=SLASH_COMMANDS,
+            models=["deepseek-v4.1-flash"],
+        )
+        dummy_event = CompleteEvent()
+        auth_cmds = [c.text for c in completer.get_completions(Document("/au"), dummy_event)]
+        self.assertIn("/auth", auth_cmds)
+        sub_cmds = [c.text for c in completer.get_completions(Document("/auth st"), dummy_event)]
+        self.assertEqual(sub_cmds, ["status"])
+
+        # 2. SafeFileHistory blocks inline secrets while allowing normal commands
+        hist_path = self.workspace / "history.txt"
+        safe_hist = SafeFileHistory(str(hist_path))
+        safe_hist.store_string("/auth status")
+        safe_hist.store_string("/auth evren_llm_super_secret_9999")
+        safe_hist.store_string("/key evren_llm_another_secret_8888")
+        safe_hist.store_string("bana evren_llm_raw_pasted_key_7777 kullan")
+        safe_hist.store_string("/model coder")
+        saved_hist = hist_path.read_text(encoding="utf-8") if hist_path.is_file() else ""
+        self.assertIn("/auth status", saved_hist)
+        self.assertIn("/model coder", saved_hist)
+        self.assertNotIn("super_secret_9999", saved_hist)
+        self.assertNotIn("another_secret_8888", saved_hist)
+        self.assertNotIn("raw_pasted_key_7777", saved_hist)
+
+        # 3. /auth interactive key rotation & rejection safety
+        def mock_auth_transport(request: httpx.Request) -> httpx.Response:
+            auth_hdr = request.headers.get("Authorization", "")
+            if "evren_llm_rejected_key" in auth_hdr:
+                return httpx.Response(401, json={"error": {"message": "Unauthorized"}})
+            if request.url.path.endswith("/models"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "data": [
+                            {
+                                "id": "deepseek-v4.1-flash",
+                                "task": "chat",
+                                "context_length": 1048576,
+                                "default_max_output_tokens": 32768,
+                                "capabilities": {"tools": True, "thinking": True},
+                                "modalities": ["text", "image"],
+                            }
+                        ]
+                    },
+                )
+            return httpx.Response(404)
+
+        mock_http = httpx.Client(transport=httpx.MockTransport(mock_auth_transport))
+        auth_mgr = EvrenAuthManager(self.config, http_client=mock_http)
+        session_mgr = SessionManager(self.config)
+        orchestrator = AgentOrchestrator(config=self.config)
+        orchestrator.llm_client._model_cooldowns["deepseek-v4.1-flash"] = 9999999999.0
+
+        buf = io.StringIO()
+        ui = ConsoleUI(EventBus(), console=Console(file=buf, force_terminal=False, width=120))
+
+        # Status check masks secret
+        self.assertTrue(handle_slash_command("/auth status", orchestrator, auth_mgr, session_mgr, ui))
+        status_out = buf.getvalue()
+        self.assertIn("evren_llm_****...2345", status_out)
+        self.assertNotIn("evren_llm_test_key_12345", status_out)
+
+        # Rejected key via /key alias keeps previous key intact
+        self.assertTrue(
+            handle_slash_command("/key evren_llm_rejected_key", orchestrator, auth_mgr, session_mgr, ui)
+        )
+        self.assertEqual(orchestrator.config.api.api_key, "evren_llm_test_key_12345")
+
+        # Valid masked prompt via /auth updates key in memory, llm_client, and disk
+        with patch.object(ui, "prompt_api_key", return_value="evren_llm_rotated_new_key_6789"):
+            self.assertTrue(handle_slash_command("/auth", orchestrator, auth_mgr, session_mgr, ui))
+
+        self.assertEqual(orchestrator.config.api.api_key, "evren_llm_rotated_new_key_6789")
+        self.assertEqual(orchestrator.llm_client._get_headers()["Authorization"], "Bearer evren_llm_rotated_new_key_6789")
+        self.assertEqual(self.config.api.key_file_path.read_text(encoding="utf-8"), "evren_llm_rotated_new_key_6789")
+        self.assertEqual(len(orchestrator.llm_client._model_cooldowns), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

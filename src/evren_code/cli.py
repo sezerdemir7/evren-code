@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -31,12 +32,31 @@ from evren_code.ui.console import ConsoleUI
 SLASH_COMMANDS = [
     "/help",
     "/model",
+    "/auth",
     "/undo",
     "/status",
     "/compact",
     "/clear",
     "/exit",
 ]
+
+
+class SafeFileHistory(FileHistory):
+    """Prevents inline API keys or `/auth <secret>` inputs from being stored in disk history."""
+
+    def __init__(self, filename: str, key_prefix: str = "evren_llm_") -> None:
+        super().__init__(filename)
+        self._key_prefix = key_prefix
+
+    def store_string(self, string: str) -> None:
+        stripped = string.strip()
+        lower = stripped.lower()
+        if (
+            re.match(r"^/(?:auth|key|apikey)\s+(?!status\b)\S+", lower)
+            or (self._key_prefix and self._key_prefix in stripped)
+        ):
+            return
+        super().store_string(string)
 
 
 class SlashCommandCompleter(Completer):
@@ -79,6 +99,11 @@ class SlashCommandCompleter(Completer):
                 for m in self.models:
                     if m.lower().startswith(current_word.lower()):
                         yield Completion(m, start_position=-len(current_word))
+            elif cmd in ("/auth", "/key", "/apikey"):
+                current_word = document.get_word_before_cursor()
+                for sub in ("status",):
+                    if sub.startswith(current_word.lower()):
+                        yield Completion(sub, start_position=-len(current_word))
             elif cmd == "/undo":
                 current_word = document.get_word_before_cursor()
                 for sub in ("turn", "all"):
@@ -90,9 +115,17 @@ def run_onboarding_flow(
     auth_mgr: EvrenAuthManager,
     ui: ConsoleUI,
     force_new_key: bool = False,
+    provided_key: Optional[str] = None,
 ) -> bool:
     """Run onboarding flow."""
-    key = None if force_new_key else auth_mgr.load_stored_key()
+    if provided_key is not None:
+        try:
+            key = auth_mgr.validate_key_format(provided_key)
+        except EvrenAuthError as exc:
+            ui.console.print(f"[bold red]Kurulum Hatası:[/bold red] {exc}")
+            return False
+    else:
+        key = None if force_new_key else auth_mgr.load_stored_key()
 
     if not key:
         try:
@@ -118,11 +151,30 @@ def run_onboarding_flow(
         ui.console.print(f"[bold red]✖ EVREN Doğrulama Hatası:[/bold red] {exc}")
         return False
     except Exception as exc:
+        if force_new_key or provided_key is not None:
+            ui.console.print(
+                f"[bold red]✖ Bağlantı Hatası:[/bold red] Yeni API anahtarı doğrulanamadı ({exc}). Mevcut anahtar korundu."
+            )
+            return False
         auth_mgr.load_models_cache()
         ui.console.print(
             f"[yellow]⚠ Canlı model listesi alınamadı ({exc}); varsayılan katalog kullanılacak.[/yellow]"
         )
         return True
+
+
+def _has_dotenv_api_key(workspace: Path) -> bool:
+    """Check whether `.env` in workspace or current working directory defines `EVREN_API_KEY`."""
+    for base in {workspace, Path.cwd()}:
+        env_file = base / ".env"
+        if env_file.is_file():
+            try:
+                content = env_file.read_text(encoding="utf-8", errors="ignore")
+                if re.search(r"^\s*EVREN_API_KEY\s*=", content, flags=re.MULTILINE):
+                    return True
+            except OSError:
+                pass
+    return False
 
 
 def handle_slash_command(
@@ -150,6 +202,7 @@ def handle_slash_command(
         help_text = (
             "[bold cyan]Evren-Code Temel Komutları:[/bold cyan]\n"
             "  [bold green]/model [id|rol][/bold green] : Aktif modeli görüntüler veya değiştirir (örn: `/model coder` veya `/model deepseek-v4.1-flash`)\n"
+            "  [bold green]/auth [status][/bold green]  : Oturumdan çıkmadan EVREN API anahtarını güvenli şekilde günceller veya durumunu gösterir (`/key` takma adı da desteklenir)\n"
             "  [bold green]/undo [turn][/bold green]    : Son dosya değişikliğini veya tüm turu (`/undo turn`, Shadow Git) anında geri alır\n"
             "  [bold green]/status[/bold green]         : Aktif model, token kullanımı ve çalışma alanı durumunu gösterir\n"
             "  [bold green]/compact[/bold green]        : Konuşma geçmişini özetleyerek bağlamda yer açar\n"
@@ -161,6 +214,47 @@ def handle_slash_command(
             "Ajan gerekli araçları arka planda otomatik olarak çalıştırır.[/dim]"
         )
         ui.console.print(help_text)
+        return True
+
+    if cmd in ("/auth", "/key", "/apikey"):
+        if arg.lower() == "status":
+            current_key = orchestrator.config.api.api_key or auth_mgr.config.api.api_key
+            masked = auth_mgr.mask_key(current_key)
+            source = auth_mgr.get_key_source()
+            ui.console.print(
+                f"[bold]EVREN API Anahtarı:[/bold] [cyan]{masked}[/cyan] | "
+                f"[bold]Kaynak:[/bold] [dim]{source}[/dim] | "
+                f"[bold]Sunucu:[/bold] [dim]{orchestrator.config.api.base_url}[/dim]\n"
+                "[dim]Anahtarı yenilemek için argümansız `/auth` komutunu çalıştırın.[/dim]"
+            )
+            return True
+
+        had_env_key = bool(os.environ.get("EVREN_API_KEY"))
+        if arg:
+            ui.console.print(
+                "[yellow]⚠ Güvenlik İpucu:[/yellow] API anahtarınızı ekranda görünmeden girmek için "
+                "bir sonraki sefer argümansız `/auth` komutunu kullanmanız önerilir."
+            )
+
+        ok = run_onboarding_flow(
+            auth_mgr,
+            ui,
+            force_new_key=True,
+            provided_key=arg if arg else None,
+        )
+        if ok and auth_mgr.config.api.api_key:
+            new_key = auth_mgr.config.api.api_key
+            orchestrator.config.api.api_key = new_key
+            orchestrator.llm_client.config.api.api_key = new_key
+            orchestrator.config.models.catalog.update(auth_mgr.config.models.catalog)
+            orchestrator.llm_client._model_cooldowns.clear()
+            if had_env_key:
+                os.environ["EVREN_API_KEY"] = new_key
+            if _has_dotenv_api_key(orchestrator.config.workspace_root):
+                ui.console.print(
+                    "[yellow]⚠ Not:[/yellow] Çalışma alanınızdaki `.env` dosyasında `EVREN_API_KEY` tanımlı görünüyor. "
+                    "Sonraki oturumlarda eski anahtarın okunmaması için `.env` dosyasını da güncellemeyi unutmayın."
+                )
         return True
 
     if cmd == "/model":
@@ -628,7 +722,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     try:
         session: Optional[PromptSession[str]] = PromptSession(
-            history=FileHistory(hist_file),
+            history=SafeFileHistory(hist_file, key_prefix=config.api.key_prefix),
             completer=completer,
             key_bindings=create_prompt_key_bindings(),
         )

@@ -127,14 +127,20 @@ EVREN platformundaki API anahtarınızın kullanım süresi dolduğunda veya ana
 
 1. **[https://evren.ssyz.org.tr/](https://evren.ssyz.org.tr/)** adresine girin -> **LLM Çıkarım** -> **API Anahtarı** bölümünden yeni bir `evren_llm_...` anahtarı oluşturup kopyalayın.
 2. **Yeni anahtarı kaydetmek için aşağıdaki yollardan birini uygulayın:**
-   * **Seçenek A — Terminalden Tek Komutla (En Kolay):**
+   * **Seçenek A — İnteraktif Oturum İçinden Çıkmadan (`/auth`):**
+     Açık bir `evren` oturumu sırasındayken konuşma geçmişinizi kaybetmeden doğrudan şu komutu yazın:
+     ```text
+     /auth
+     ```
+     *(Alternatif olarak `/key` takma adını da kullanabilir, mevcut anahtarın maskelenmiş durumunu görmek için `/auth status` yazabilirsiniz.)* Yeni `evren_llm_...` anahtarınızı gizli girdi ekranına yapıştırıp `Enter`'a bastığınızda bağlantı doğrulanır, `~/.evren-code/.evren-key` güncellenir ve oturum kesintisiz devam eder.
+   * **Seçenek B — Terminalden Tek Komutla (`evren --setup`):**
      ```bash
      evren --setup
      ```
      komutunu çalıştırın ve yeni `evren_llm_...` anahtarınızı yapıştırıp `Enter`'a basın. Eski anahtarın üzerine otomatik olarak yazılacak ve bağlantı anında doğrulanacaktır.
-   * **Seçenek B — `.env` Dosyası Kullanıyorsanız:**
+   * **Seçenek C — `.env` Dosyası Kullanıyorsanız:**
      Proje dizinindeki `.env` dosyasını açıp `EVREN_API_KEY=evren_llm_yeni_anahtariniz` satırını güncelleyin. *(Not: Ortam değişkeninde veya `.env` içinde eski bir `EVREN_API_KEY` tanımlıysa öncelikli olarak o okunur; bu yüzden `.env` kullanıyorsanız oradaki değeri de güncellemeyi unutmayın.)*
-   * **Seçenek C — Anahtar Dosyasını Doğrudan Düzenleme:**
+   * **Seçenek D — Anahtar Dosyasını Doğrudan Düzenleme:**
      Kullanıcı ana dizininizdeki `~/.evren-code/.evren-key` (Windows'ta `C:\Users\<KullaniciAdiniz>\.evren-code\.evren-key`) dosyasını bir metin editörüyle açıp içine doğrudan yeni `evren_llm_...` anahtarınızı yapıştırıp kaydedebilirsiniz.
 
 ---
@@ -174,7 +180,7 @@ py -3 -m pip install -e .
   * **Çözümü:** `evren --setup` komutunu çalıştırıp ekrana gelen kullanım şartlarına `e` (Evet) yanıtını verin; araç `/v1/terms/accept` onayını otomatik olarak gerçekleştirecektir.
 
 * **Sorun 3: `401 Unauthorized` / `Geçersiz API Anahtarı` Hatası**
-  * **Çözümü:** Anahtarınızın süresi dolmuş olabilir. Yukarıdaki **4. Bölüm** adımlarını takip ederek `https://evren.ssyz.org.tr/` -> **LLM Çıkarım** -> **API Anahtarı** ekranından yeni anahtar alıp `evren --setup` ile güncelleyin.
+  * **Çözümü:** Anahtarınızın süresi dolmuş olabilir. Yukarıdaki **4. Bölüm** adımlarını takip ederek `https://evren.ssyz.org.tr/` -> **LLM Çıkarım** -> **API Anahtarı** ekranından yeni anahtar alıp açık oturum içinde `/auth` yazarak veya terminalde `evren --setup` çalıştırarak güncelleyin.
 
 ---
 
@@ -213,6 +219,7 @@ evren
 | Komut | Açıklama |
 |:---|:---|
 | `/model [id\|rol]` | Aktif modeli görüntüler veya değiştirir (Örn: `/model coder`, `/model architect`, `/model glm-5.3`) |
+| `/auth [status]` | Oturumdan çıkmadan EVREN API anahtarını gizli girdi ile günceller veya maskelenmiş durumunu gösterir (`/key` takma adı da desteklenir) |
 | `/undo` | Ajanın yaptığı son dosya değişikliğini anında geri alır (Snapshot Rollback) |
 | `/status` | Aktif modeli, mesaj sayısını, tahmini token kullanımını ve geri alma (`/undo`) sayısını gösterir |
 | `/compact` | Konuşma geçmişini özetleyerek bağlam penceresinde (context) yer açar |
